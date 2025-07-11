@@ -1,4 +1,4 @@
-# gaussianWFC
+# Optimization for metamaterial based on WFC
 
 
 # environment
