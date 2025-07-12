@@ -1,5 +1,8 @@
+from src.mma.mmapy import *
+
+
 def main():
-    print("Hello from metaoptimization!")
+    print("Hello from metaOptimization!")
 
 
 if __name__ == "__main__":
