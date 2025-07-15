@@ -24,3 +24,15 @@ class Tile(ABC):
         :return: tile属性的dict
         """
         pass
+
+if __name__ == '__main__':
+    """一个Tile使用方法的示例"""
+    class TestTile(Tile):
+        @property
+        def property(self):
+            return {"strength": 100}
+
+        def build(self, points, *args, **kwargs):
+            #save as stp
+            pass
+
