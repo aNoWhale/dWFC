@@ -30,7 +30,8 @@ if __name__ == '__main__':
     class TestTile(Tile):
         @property
         def property(self):
-            return {"strength": 100}
+            return {"strength": 100,
+                    "youngs":19899}
 
         def build(self, points, *args, **kwargs):
             #save as stp
