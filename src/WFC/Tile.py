@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 
+
 class Tile(ABC):
     """
     所有tile的基类，所有tile都必须继承此类并实现此类的功能
