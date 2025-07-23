@@ -163,6 +163,9 @@ def waveFunctionCollapse(adj_csr, tileHandler: TileHandler)->jnp.ndarray:
         # collapse_idx = gumbel_softmax(subkey,entropies,tau=1.0,hard=True,axis=-1,eps=1e-10)
         collapse_idx,should_stop = select_collapse(subkey, probs, tau=0.1,stopThreshold=0.2)
         should_stop=should_stop.item() if type(should_stop) is not bool else should_stop
+        if should_stop:
+            jax.debug.print("####entropy reached stop condition####\n")
+            break
         # 坍缩选定的单元
         key, subkey = jax.random.split(key)
         p_collapsed = gumbel_softmax(subkey,probs[collapse_idx],tau=1.0,hard=True,axis=-1,eps=1e-10)
@@ -194,8 +197,8 @@ if __name__ == "__main__":
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='d',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='d',toTypeName='a',value=1,dual=True)
 
-    print(tileHandler)
+    print(f"tileHandler:\n {tileHandler}")
 
     probs=waveFunctionCollapse(adj,tileHandler)
     pattern = jnp.argmax(probs, axis=-1, keepdims=True)
-    print(probs)
+    print(f"probs:\n{probs}")
