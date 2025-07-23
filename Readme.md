@@ -9,7 +9,7 @@ conda install -f environment.yaml
 ```
 * To export conda environment
 ```shell
-conda env export > environment.yaml
+conda env export --from-history > environment.yaml
 ```
 
 * to install pip requirements

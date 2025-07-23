@@ -110,7 +110,7 @@ def select_collapse(key, probs, tau=0.1, stopThreshold=0.2):
     # 未坍缩: entropy_adj = entropy
     # 已坍缩: entropy_adj = max_entropy + 1
     max_entropy = jnp.max(entropy)
-    jax.debug.print("max entropy: {}", max_entropy)
+    # jax.debug.print("max entropy: {}", max_entropy)
     should_stop = max_entropy < stopThreshold
     entropy_adj = entropy * mask + (1 - mask) * (max_entropy + 1.0)
 
@@ -130,27 +130,24 @@ def select_collapse(key, probs, tau=0.1, stopThreshold=0.2):
 def update_neighbors(probs, neighbors, p_collapsed, compatibility):
     """向量化更新邻居概率"""
     def update_single(neighbor_prob):
-        # 简化einsum：'ij,j,il->il' -> 'j,j->' 但保持维度
-        support = jnp.dot(compatibility, p_collapsed)
-        p_neigh = neighbor_prob * support
+        p_neigh = jnp.einsum('ij,j,j->i',compatibility, p_collapsed, neighbor_prob)
         norm = jnp.sum(p_neigh, axis=-1, keepdims=True)
         return p_neigh / jnp.where(norm == 0, 1.0, norm)
 
     for neighbor in neighbors:
         prob=update_single(probs[neighbor])
-        probs.at[neighbor].set(prob)
-    # return jax.vmap(update_single)(probs[neighbors])
+        # jax.debug.print("update neighbor: {} with {}", neighbor, prob)
+        probs = probs.at[neighbor].set(prob)
+        # jax.debug.print("probs in update_neighbor: \n{}", probs)
     return probs
 
 
-def waveFunctionCollapse(adj_csr, tileHandler: TileHandler)->jnp.ndarray:
+def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler)->jnp.ndarray:
 
-    numTypes = tileHandler.typeNum
     key = jax.random.PRNGKey(0)
     num_elements = adj_csr['num_elements']
 
     # 初始化概率分布
-    init_probs = jnp.ones((num_elements, numTypes)) / numTypes # (n_elements,n_types)
     probs=init_probs
 
     should_stop = False
@@ -158,13 +155,11 @@ def waveFunctionCollapse(adj_csr, tileHandler: TileHandler)->jnp.ndarray:
     pbar = tqdm.tqdm(total=num_elements, desc="坍缩中", unit="项")
     while should_stop is False:
         # 选择要坍缩的单元（最小熵单元）
-        # entropies = shannon_entropy(probs)
         key, subkey = jax.random.split(key)
-        # collapse_idx = gumbel_softmax(subkey,entropies,tau=1.0,hard=True,axis=-1,eps=1e-10)
         collapse_idx,should_stop = select_collapse(subkey, probs, tau=0.1,stopThreshold=0.2)
         should_stop=should_stop.item() if type(should_stop) is not bool else should_stop
         if should_stop:
-            jax.debug.print("####entropy reached stop condition####\n")
+            # jax.debug.print("####entropy reached stop condition####\n")
             break
         # 坍缩选定的单元
         key, subkey = jax.random.split(key)
@@ -173,25 +168,27 @@ def waveFunctionCollapse(adj_csr, tileHandler: TileHandler)->jnp.ndarray:
 
         # 获取该单元的邻居
         neighbors = get_neighbors(adj_csr, collapse_idx)
-        # print(f"坍缩单元 {collapse_idx} 的邻居: {neighbors}")
-        jax.debug.print("collapse_idx: {}", collapse_idx)
-        jax.debug.print("neighbors: {}", neighbors)
+        # jax.debug.print("collapse_idx: {}", collapse_idx)
+        # jax.debug.print("neighbors: {}", neighbors)
         #更新邻居的概率场
         probs = update_neighbors(probs, neighbors, p_collapsed, tileHandler.compatibility)
         # 更新进度
         pbar.update(1)
-        jax.debug.print("collapsed probs: \n{}", probs)
-        jax.debug.print("epoch end\n")
+        # jax.debug.print("neighbors probs: \n{}", probs)
+        # jax.debug.print("epoch end\n")
         # 然后再计算香农熵选择下一个
     pbar.close()
     return probs
 
 if __name__ == "__main__":
     from src.utiles.adjacency import build_grid_adjacency
-    adj=build_grid_adjacency(height=3, width=3, connectivity=4)
+
+    height = 3
+    width = 3
+    adj=build_grid_adjacency(height=height, width=width, connectivity=4)
 
     tileHandler = TileHandler(typeList=['a','b','c','d'])
-    tileHandler.selfConnectable(typeName=['a','b','c','d'],value=1)
+    tileHandler.selfConnectable(typeName=['a','b','c','d'],value=0)
     tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='d',value=1,dual=True)
@@ -199,6 +196,11 @@ if __name__ == "__main__":
 
     print(f"tileHandler:\n {tileHandler}")
 
-    probs=waveFunctionCollapse(adj,tileHandler)
-    pattern = jnp.argmax(probs, axis=-1, keepdims=True)
-    print(f"probs:\n{probs}")
+    num_elements = adj['num_elements']
+    numTypes = tileHandler.typeNum
+    init_probs = jnp.ones((num_elements, numTypes)) / numTypes # (n_elements,n_types)
+
+    probs=waveFunctionCollapse(init_probs,adj,tileHandler)
+    pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(height,width)
+    name_pattern = tileHandler.pattern_to_names(pattern)
+    print(f"pattern: \n{name_pattern}")

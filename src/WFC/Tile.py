@@ -6,6 +6,7 @@ class Tile(ABC):
     """
     所有tile的基类，所有tile都必须继承此类并实现此类的功能
     """
+    #TODO 需要name属性
     @abstractmethod
     def build(self,points,*args,**kwargs):
         """
