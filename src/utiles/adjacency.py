@@ -65,3 +65,22 @@ def build_grid_adjacency(height, width, connectivity=4):
         'data': jnp.ones(len(col_idx)),  # 所有边权重为1
         'num_elements': num_elements
     }
+
+
+
+if __name__ == '__main__':
+    # 运行函数
+    adj = build_grid_adjacency(height=3, width=3, connectivity=4)
+
+    # 验证输出
+    print("单元数:", adj['num_elements'])
+    print("row_ptr:", adj['row_ptr'])
+    print("col_idx:", adj['col_idx'])
+    print("邻居关系数:", len(adj['col_idx']))
+
+    # 验证每个单元的邻居
+    for i in range(9):
+        start = adj['row_ptr'][i]
+        end = adj['row_ptr'][i + 1]
+        neighbors = adj['col_idx'][start:end]
+        print(f"单元 {i} 的邻居: {neighbors}")

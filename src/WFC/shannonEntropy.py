@@ -1,15 +1,19 @@
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 
-@jax.jit
-def shannon_entropy(probs: jnp.ndarray)->jnp.ndarray:
+
+@partial(jax.jit, static_argnames=('axis',))
+def shannon_entropy(probs: jnp.ndarray,axis=-1)->jnp.ndarray:
     """
     shannon entropy
+    :param axis:
     :param probs: probabilities
     :return:
     """
     probs = jnp.clip(probs, 1e-8, 1 - 1e-8)
-    entropy = -jnp.sum(probs * jnp.log2(probs))
+    entropy = -jnp.sum(probs * jnp.log2(probs),axis=axis)
     return entropy
 
 
