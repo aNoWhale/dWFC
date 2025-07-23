@@ -11,6 +11,7 @@ dependencies:
   - petsc4py==3.23.4
   - pip==25.1.1
   - fenics==2019.1.0
+  - pythonocc-core
   - pip:
     - setuptools==80.9.0
     - wheel==0.45.1
@@ -18,4 +19,3 @@ dependencies:
     - fenics-basix==0.9.0
     - pyfiglet==1.0.3
     - tqdm
-prefix: /home/sck/miniconda3/envs/meta
