@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 
 @jax.jit
-def shannon_entropy(probs: jnp.ndarray):
+def shannon_entropy(probs: jnp.ndarray)->jnp.ndarray:
     """
     shannon entropy
     :param probs: probabilities
@@ -93,4 +93,11 @@ if __name__ == "__main__":
         assert jnp.allclose(actual_batch, expected_batch), "批量计算测试失败"
 
         print("\n✅ 所有测试通过！")
-    test_shannon_entropy()
+    # test_shannon_entropy()
+    import matplotlib.pyplot as plt
+    import numpy as np
+    x=np.arange(1,1001)
+    for i in x:
+        probs = np.ones(i)/i
+        plt.scatter(i, np.array(np.max(shannon_entropy(probs))))
+    plt.show()

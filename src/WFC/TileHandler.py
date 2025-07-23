@@ -1,14 +1,60 @@
-import warnings
-from typing import List
-import jax.numpy as jnp
+from __future__ import annotations
 
+import warnings
+from typing import List, Dict
+
+import jax
+import jax.numpy as jnp
+import numpy as np
 class TileHandler:
     def __init__(self, typeList:List[str]):
-        warnings.warn( NotImplemented)
         self.typeList = typeList #单元类型表
         self.typeNum = len(typeList)
-        self.compatibility = jnp.zeros((len(typeList), len(typeList))) # 兼容性矩阵
-    def setConnectiability(self,fromTypeName:str,toTypeName:str,direction,value):
+        self._compatibility = np.zeros((len(typeList), len(typeList))) # 兼容性矩阵,1为兼容，0为不兼容
+        # 创建名称到索引的映射字典
+        self.name_to_index: Dict[str, int] = self._create_name_index_map()
+
+    def __repr__(self):
+        return (f'types: {self.typeList},\n'
+                f'compatibility:\n'
+                f'{self.compatibility},\n')
+
+    @property
+    def compatibility(self):
+        return self._compatibility
+
+    def _create_name_index_map(self) -> Dict[str, int]:
+        """创建从类型名称到索引的映射字典"""
+        return {name: idx for idx, name in enumerate(self.typeList)}
+
+    def _get_index_by_name(self, name: str) -> int:
+        """根据类型名称获取索引 (O(1)时间复杂度的快速查询)"""
+        try:
+            return self.name_to_index[name]
+        except KeyError:
+            raise ValueError(f"类型名称 '{name}' 不存在于类型列表中") from None
+
+    def setConnectiability(self,fromTypeName:str,toTypeName:str|List[str],direction=None,value=1,dual=True):
+        toTypeName=toTypeName if type(toTypeName) is List else list(toTypeName)
+        j=self._get_index_by_name(fromTypeName)
+        for toName in toTypeName:
+            i=self._get_index_by_name(toName)
+            self._compatibility[i,j]=value
+            if dual:
+                self._compatibility[j,i]=value
         pass
-    def selfConnectable(self,typeList:List[str]):
+
+    def selfConnectable(self,typeName:str|List[str],direction=None,value=1):
+        typeName = typeName if type(typeName) is List else list(typeName)
+        for name in typeName:
+            self.setConnectiability(fromTypeName=name,toTypeName=name,direction=direction,value=value)
         pass
+
+
+if __name__ == '__main__':
+    tileHandler = TileHandler(typeList=['a','b','c',])
+    tileHandler.selfConnectable(typeName=['a','c'],value=1)
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',value=1,dual=True)
+    print(tileHandler)
