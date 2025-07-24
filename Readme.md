@@ -26,3 +26,8 @@ pipreqs . --force
 ```shell
 pip install -U "jax[cuda12]"
 ```
+
+* to install julia environment
+```shell
+julia Pkg.instantiate(julia_env)
+```
