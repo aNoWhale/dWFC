@@ -1,2 +1,7 @@
 .venv
 .idea
+jax-fem/applications
+jax-fem/docs
+jax-fem/tests
+**/__pycache__
+test.py
