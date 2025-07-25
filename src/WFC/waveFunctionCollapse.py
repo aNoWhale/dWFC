@@ -16,7 +16,7 @@ from src.WFC.gumbelSoftmax import gumbel_softmax
 from src.WFC.shannonEntropy import shannon_entropy
 from src.WFC.TileHandler import TileHandler
 
-import tqdm
+import tqdm.rich as tqdm
 
 import scipy.sparse
 import numpy as np

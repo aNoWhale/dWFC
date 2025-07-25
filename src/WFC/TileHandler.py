@@ -1,36 +1,54 @@
 from __future__ import annotations
 
 import warnings
-from typing import List, Dict
+from typing import List, Dict, Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 class TileHandler:
-    def __init__(self, typeList:List[str]):
-        self.typeList = typeList #单元类型表
-        self.typeNum = len(typeList)
-        self._compatibility = np.zeros((len(typeList), len(typeList))) # 兼容性矩阵,1为兼容，0为不兼容
+    def __init__(self, *args,**kwargs):
+        typeList=kwargs.pop('typeList',[])
+        self.typeList = typeList
+        self.typeMethod={}
+         #单元类型表
+        self.typeNum = len(self.typeList)
+        self._compatibility = np.zeros((len(self.typeList), len(self.typeList))) # 兼容性矩阵,1为兼容，0为不兼容
         # 创建名称到索引的映射字典
-        self.name_to_index: Dict[str, int] = self._create_name_index_map()
+        self.name_to_index: Dict[str, int] = {name: idx for idx, name in enumerate(self.typeList)}
         # 创建索引到名称的映射字典
-        self.index_to_name: Dict[int, str] = self._create_index_name_map()
+        self.index_to_name: Dict[int, str] = {idx: name for idx, name in enumerate(self.typeList)}
+
     def __repr__(self):
-        return (f'types: {self.typeList},\n'
+        type_method = ''
+        for i, name in enumerate(self.typeMethod.keys()):
+            type_method += f"{name} -> {self.typeMethod[name]}\n"
+        return (f'type -> method: \n{type_method}'
+                f'{len(self.typeMethod)} of {len(self.typeList)} types has method\n\n'
                 f'compatibility:\n'
                 f'{self.compatibility},\n')
+
+    def register(self,typeName:str|List[str],class_type:Callable|List[Callable]) -> None:
+        typeName=typeName if type(typeName) is list else list(typeName)
+        class_type=class_type if type(class_type) is list else [class_type]
+        assert len(typeName)==len(class_type)
+        update_index=False
+        for i,name in enumerate(typeName):
+            self.typeMethod[name]=class_type[i]
+            if name not in self.typeList:
+                self.typeList.append(name) #添加到typelist
+                self._compatibility = np.pad(self._compatibility, pad_width=((0, 1), (0, 1)), mode='constant', constant_values=0) # 更新兼容矩阵
+                update_index=True
+        if update_index:
+            # 更新两个索引
+            self.name_to_index: Dict[str, int] = {name: idx for idx, name in enumerate(self.typeList)}
+            self.index_to_name: Dict[int, str] = {idx: name for idx, name in enumerate(self.typeList)}
+
 
     @property
     def compatibility(self):
         return self._compatibility
 
-    def _create_name_index_map(self) -> Dict[str, int]:
-        """创建从类型名称到索引的映射字典"""
-        return {name: idx for idx, name in enumerate(self.typeList)}
-
-    def _create_index_name_map(self) -> Dict[int, str]:
-        """创建从索引到类型名称的映射字典"""
-        return {idx: name for idx, name in enumerate(self.typeList)}
 
     def get_name_by_index(self, index: int) -> str:
         """根据索引获取类型名称"""
@@ -68,9 +86,14 @@ class TileHandler:
 
 
 if __name__ == '__main__':
+    class Test:
+        def __init__(self):
+            pass
     tileHandler = TileHandler(typeList=['a','b','c',])
+    tileHandler.register(['d','e'],[Test,Test])
     tileHandler.selfConnectable(typeName=['a','c'],value=1)
     tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',value=1,dual=True)
+
     print(tileHandler)

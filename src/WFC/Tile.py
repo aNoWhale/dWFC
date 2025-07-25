@@ -27,6 +27,14 @@ class Tile(ABC):
         """
         pass
 
+    @property
+    @abstractmethod
+    def name(self):
+        pass
+
+    def __repr__(self):
+        return f'{self.name}'
+
 if __name__ == '__main__':
     """一个Tile使用方法的示例"""
     class TestTile(Tile):
