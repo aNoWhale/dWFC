@@ -6,7 +6,6 @@ class Tile(ABC):
     """
     所有tile的基类，所有tile都必须继承此类并实现此类的功能
     """
-    #TODO 需要name属性
     @abstractmethod
     def build(self,points,*args,**kwargs):
         """
@@ -15,7 +14,21 @@ class Tile(ABC):
         :param args:
         :param kwargs:
         :return:
+        input:
+                points: 立方体8个角的坐标点列表，格式为[[x1,y1,z1], [x2,y2,z2], ...]
+                   按照以下顺序排列：
+                   [0]: 底面左前角 (x_min, y_min, z_min)
+                   [1]: 底面右前角 (x_max, y_min, z_min)
+                   [2]: 底面右后角 (x_max, y_max, z_min)
+                   [3]: 底面左后角 (x_min, y_max, z_min)
+                   [4]: 顶面左前角 (x_min, y_min, z_max)
+                   [5]: 顶面右前角 (x_max, y_min, z_max)
+                   [6]: 顶面右后角 (x_max, y_max, z_max)
+                   [7]: 顶面左后角 (x_min, y_max, z_max)
+        return:
+             result_shape
         """
+
         pass
 
     @property
@@ -27,13 +40,7 @@ class Tile(ABC):
         """
         pass
 
-    @property
-    @abstractmethod
-    def name(self):
-        pass
 
-    def __repr__(self):
-        return f'{self.name}'
 
 if __name__ == '__main__':
     """一个Tile使用方法的示例"""

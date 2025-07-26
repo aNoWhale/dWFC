@@ -89,11 +89,16 @@ if __name__ == '__main__':
     class Test:
         def __init__(self):
             pass
+        def call(self):
+            print('call')
+
+    testd=Test()
     tileHandler = TileHandler(typeList=['a','b','c',])
-    tileHandler.register(['d','e'],[Test,Test])
+    tileHandler.register(['d','e'],[testd,testd])
     tileHandler.selfConnectable(typeName=['a','c'],value=1)
     tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',value=1,dual=True)
+
 
     print(tileHandler)
