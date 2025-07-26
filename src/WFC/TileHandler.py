@@ -91,14 +91,23 @@ if __name__ == '__main__':
             pass
         def call(self):
             print('call')
-
-    testd=Test()
+    from src.dynamicGenerator.TileImplement.Cube import CF
     tileHandler = TileHandler(typeList=['a','b','c',])
-    tileHandler.register(['d','e'],[testd,testd])
+    tileHandler.register(['d','e'],[CF,CF])
     tileHandler.selfConnectable(typeName=['a','c'],value=1)
     tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',value=1,dual=True)
-
+    cube_points = [
+        [0, 0, 0],  # 底面左前角
+        [1, 0, 0],  # 底面右前角
+        [1, 1, 0],  # 底面右后角
+        [0, 1, 0],  # 底面左后角
+        [0, 0, 1],  # 顶面左前角
+        [1, 0, 1],  # 顶面右前角
+        [1, 1, 1],  # 顶面右后角
+        [0, 1, 1]  # 顶面左后角
+    ]
+    tileHandler.typeMethod['d'].build(cube_points)
 
     print(tileHandler)
