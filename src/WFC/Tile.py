@@ -19,10 +19,10 @@ class Tile(ABC):
                    按照以下顺序排列：
                    [0]: 底面左前角 (x_min, y_min, z_min)
                    [1]: 底面右前角 (x_max, y_min, z_min)
-                   [2]: 底面右后角 (x_max, y_max, z_min)
-                   [3]: 底面左后角 (x_min, y_max, z_min)
-                   [4]: 顶面左前角 (x_min, y_min, z_max)
-                   [5]: 顶面右前角 (x_max, y_min, z_max)
+                   [2]: 顶面右前角 (x_max, y_min, z_max)
+                   [3]: 顶面左前角 (x_min, y_min, z_max)
+                   [4]: 底面左后角 (x_min, y_max, z_min)
+                   [5]: 底面右后角 (x_max, y_max, z_min)
                    [6]: 顶面右后角 (x_max, y_max, z_max)
                    [7]: 顶面左后角 (x_min, y_max, z_max)
         return:
