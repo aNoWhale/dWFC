@@ -6,3 +6,4 @@ jax-fem/tests
 **/__pycache__
 **/test.*
 Tutorials
+src/fem/data/

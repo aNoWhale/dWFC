@@ -7,7 +7,7 @@ import time
 
 # 禁用JAX相关配置，使用NumPy的64位精度
 density_filtering = False
-sensitivity_filtering = True
+sensitivity_filtering = False
 
 
 def compute_filter_kd_tree(fe):
@@ -418,16 +418,17 @@ def subsolv(m, n, epsimin, low, upp, alfa, beta, p0, q0, P, Q, a0, a, b, c, d):
     return xmma, ymma, zmma, lamma, xsimma, etamma, mumma, zetmma, smma
 
 
-def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints):
+def optimize(fe, p_ini, optimizationParams, objectiveHandle, consHandle, numConstraints):
     # 计算过滤矩阵（使用SciPy稀疏矩阵）
-    H, Hs = compute_filter_kd_tree(fe)
-    ft = {'H': H, 'Hs': Hs}
+    if density_filtering or sensitivity_filtering:
+        H, Hs = compute_filter_kd_tree(fe)
+        ft = {'H': H, 'Hs': Hs}
 
-    rho = rho_ini.astype(np.float64)  # 确保64位精度
+    p = p_ini.astype(np.float64)  # 确保64位精度
 
     loop = 0
     m = numConstraints  # 约束数量
-    n = len(rho.reshape(-1))  # 设计变量数量
+    n = len(p.reshape(-1))  # 设计变量数量
 
     mma = MMA()
     mma.setNumConstraints(numConstraints)
@@ -437,7 +438,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         np.ones((n, 1), dtype=np.float64)
     )
 
-    xval = rho.reshape(-1)[:, None].astype(np.float64)
+    xval = p.reshape(-1)[:, None].astype(np.float64)
     xold1, xold2 = xval.copy(), xval.copy()
     mma.registerMMAIter(xval, xold1, xold2)
     mma.setLowerAndUpperAsymptotes(
@@ -459,17 +460,17 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         # 应用密度过滤
         if density_filtering:
-            rho_physical = applyDensityFilter(ft, rho)
+            p_physical = applyDensityFilter(ft, p)
         else:
-            rho_physical = rho
+            p_physical = p
 
         # 计算目标函数和约束（用户提供的接口）
-        J, dJ = objectiveHandle(rho_physical)
-        vc, dvc = consHandle(rho_physical, loop)
+        J, dJ = objectiveHandle(p_physical)
+        vc, dvc = consHandle(p_physical, loop)
 
         # 应用灵敏度过滤
         if sensitivity_filtering:
-            dJ, dvc = applySensitivityFilter(ft, rho, dJ, dvc)
+            dJ, dvc = applySensitivityFilter(ft, p, dJ, dvc)
 
         # 调整形状为列向量
         J, dJ = J, dJ.reshape(-1)[:, None].astype(np.float64)
@@ -494,7 +495,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         xval = xmma.copy()
 
         mma.registerMMAIter(xval, xold1, xold2)
-        rho = xval.reshape(rho.shape)
+        p = xval.reshape(p.shape)
 
         end = time.time()
         time_elapsed = end - start
@@ -502,4 +503,4 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print(f"MMA took {time_elapsed:.4f} [s]")
         print(f'Iter {loop:d}; J {J.item():.5f}; constraint {vc.flatten()}\n')
 
-    return rho
+    return p
