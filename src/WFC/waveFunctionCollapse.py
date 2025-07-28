@@ -20,64 +20,9 @@ import tqdm.rich as tqdm
 
 import scipy.sparse
 import numpy as np
+from collections import defaultdict
+from scipy.sparse import csr_matrix
 
-
-def build_adjacency(model, element_dim=3):
-    """
-    builds a JAX compatible adjacency matrix from gmsh model
-    element_dim: 2face 或3volume
-    """
-    # gmsh.initialize()
-    # gmsh.open(mesh_file)
-    # 1. 获取所有单元并建立索引映射
-    all_elements = model.getEntities(element_dim)
-    num_elements = len(all_elements)
-
-    # 创建标签到连续索引的映射
-    tag_to_idx = {tag: idx for idx, (_, tag) in enumerate(all_elements)}
-
-    # 2. 准备CSR数据结构
-    row_ptr = np.zeros(num_elements + 1, dtype=np.int32)
-    col_idx = []
-
-    # 3. 遍历所有单元收集邻接关系
-    for idx, (dim, tag) in enumerate(all_elements):
-        # 获取边界实体
-        boundaries = model.getBoundary(
-            [(dim, tag)],
-            oriented=False,
-            combined=False,
-            recursive=True
-        )
-
-        # 收集邻居标签
-        neighbors = set()
-        for b_dim, b_tag in boundaries:
-            adj_tags = model.getEntitiesForPhysicalGroup(b_dim, b_tag) or []
-            neighbors.update(adj_tags)
-
-        # 移除自身并转换为索引
-        neighbors.discard(tag)
-        neighbor_indices = [tag_to_idx[t] for t in neighbors if t in tag_to_idx]
-
-        # 更新CSR数据结构
-        col_idx.extend(neighbor_indices)
-        row_ptr[idx + 1] = row_ptr[idx] + len(neighbor_indices)
-
-    # 4. 转换为JAX数组
-    return {
-        'row_ptr': jnp.array(row_ptr, dtype=jnp.int32),
-        'col_idx': jnp.array(col_idx, dtype=jnp.int32),
-        'data': jnp.ones(len(col_idx)),  # 所有边权重为1
-        'num_elements': num_elements
-    }
-
-def build_adjacency_gmsh(mesh_file, element_dim=3):
-    gmsh.initialize()
-    gmsh.open(mesh_file)
-    adj_csr = build_adjacency(gmsh.model)
-    gmsh.finalize()
-    return adj_csr
 
 # @jax.jit
 def get_neighbors(csr, index):
@@ -95,8 +40,8 @@ def collapsed_mask(probabilities, threshold=0.99):
     max_probs = jnp.max(probabilities, axis=-1, keepdims=True)
     return jax.nn.sigmoid(-1000 * (max_probs - threshold))
 
-@partial(jax.jit, static_argnames=('tau','stopThreshold'))
-def select_collapse(key, probs, tau=0.1, stopThreshold=0.2):
+@partial(jax.jit, static_argnames=('tau',))
+def select_collapse(key, probs, tau=0.1):
     """
     calculate shannon entropy, give out mask by probability, modify shannon entropy by mask, select uncollapsed.
     """
@@ -110,35 +55,36 @@ def select_collapse(key, probs, tau=0.1, stopThreshold=0.2):
     # 未坍缩: entropy_adj = entropy
     # 已坍缩: entropy_adj = max_entropy + 1
     max_entropy = jnp.max(entropy)
-    # jax.debug.print("max entropy: {}", max_entropy)
-    should_stop = max_entropy < stopThreshold
+    # print("max entropy: {}", max_entropy)
     entropy_adj = entropy * mask + (1 - mask) * (max_entropy + 1.0)
 
     # 4. 转换为选择概率（最小熵对应最高概率）
     selection_logits = -entropy_adj  # 最小熵->最大logits
-
+    # print('modified logits:\n',selection_logits)
     # 5. 使用Gumbel-Softmax采样位置
     flat_logits = selection_logits.reshape(-1)
 
     collapse_probs = gumbel_softmax(key, flat_logits, tau=tau, hard=True, axis=-1, eps=1e-10)
     collapse_idx = jnp.argmax(collapse_probs)
 
-    return collapse_idx, should_stop
+    return collapse_idx, max_entropy
 
 
 @partial(jax.jit, static_argnames=())
 def update_neighbors(probs, neighbors, p_collapsed, compatibility):
     """向量化更新邻居概率"""
     def update_single(neighbor_prob):
-        p_neigh = jnp.einsum('ij,j,j->i',compatibility, p_collapsed, neighbor_prob)
-        norm = jnp.sum(p_neigh, axis=-1, keepdims=True)
+        p_neigh = jnp.einsum("...ij,...j->i", compatibility, p_collapsed)
+        p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob)
+        # print(f"compatibiliy @ p_collapsed * neighbor_prob:\n{jnp.einsum('...ij,...j->...i',compatibility, p_collapsed)} * {neighbor_prob}")
+        # print(f'p_neigh: {p_neigh}')
+        norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
         return p_neigh / jnp.where(norm == 0, 1.0, norm)
 
     for neighbor in neighbors:
         prob=update_single(probs[neighbor])
-        # jax.debug.print("update neighbor: {} with {}", neighbor, prob)
+        # print(f"update neighbor {neighbor} with {prob}")
         probs = probs.at[neighbor].set(prob)
-        # jax.debug.print("probs in update_neighbor: \n{}", probs)
     return probs
 
 
@@ -152,14 +98,15 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler)->jnp.ndar
 
     should_stop = False
 
-    pbar = tqdm.tqdm(total=num_elements, desc="坍缩中", unit="项")
+    pbar = tqdm.tqdm(total=num_elements, desc="collpasing", unit="tiles")
     while should_stop is False:
         # 选择要坍缩的单元（最小熵单元）
         key, subkey = jax.random.split(key)
-        collapse_idx,should_stop = select_collapse(subkey, probs, tau=0.1,stopThreshold=0.2)
-        should_stop=should_stop.item() if type(should_stop) is not bool else should_stop
-        if should_stop:
-            # jax.debug.print("####entropy reached stop condition####\n")
+        collapse_idx,max_entropy = select_collapse(subkey, probs, tau=0.1)
+        print(f"max entorpy: {max_entropy}")
+        if max_entropy<0.2:
+            should_stop=True
+            print("####entropy reached stop condition####\n")
             break
         # 坍缩选定的单元
         key, subkey = jax.random.split(key)
@@ -168,32 +115,50 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler)->jnp.ndar
 
         # 获取该单元的邻居
         neighbors = get_neighbors(adj_csr, collapse_idx)
-        # jax.debug.print("collapse_idx: {}", collapse_idx)
-        # jax.debug.print("neighbors: {}", neighbors)
-        #更新邻居的概率场
+        # print(f"collapse_idx: {collapse_idx}", )
+        # print(f"neighbors: {neighbors}")
+        # 更新邻居的概率场
         probs = update_neighbors(probs, neighbors, p_collapsed, tileHandler.compatibility)
         # 更新进度
         pbar.update(1)
-        # jax.debug.print("neighbors probs: \n{}", probs)
-        # jax.debug.print("epoch end\n")
+        if pbar.n > pbar.total:
+            pbar.set_description_str("trying fix conflicts")
+        print(f"probs: \n{probs}",)
+        print("epoch end\n")
         # 然后再计算香农熵选择下一个
     pbar.close()
     return probs
 
 if __name__ == "__main__":
     from src.utiles.adjacency import build_grid_adjacency
-
     height = 3
     width = 3
     adj=build_grid_adjacency(height=height, width=width, connectivity=4)
 
-    tileHandler = TileHandler(typeList=['a','b','c','d'])
-    tileHandler.selfConnectable(typeName=['a','b','c','d'],value=0)
+    # from src.utiles.generateMsh import generate_cube_hex_mesh
+    # msh_name='box.msh'
+    # from jax_fem.generate_mesh import box_mesh_gmsh
+    # Nx,Ny,Nz=2,2,2
+    # meshio_mesh = box_mesh_gmsh(
+    #     Nx=Nx,
+    #     Ny=Ny,
+    #     Nz=Nz,
+    #     domain_x=1.0,
+    #     domain_y=1.0,
+    #     domain_z=1.0,
+    #     data_dir=f"data",
+    #     ele_type='HEX8',
+    # )
+    # from src.WFC.buildAdjacency import build_hex8_adjacency_with_meshio
+    # adj = build_hex8_adjacency_with_meshio(f'data/msh/{msh_name}')
+
+    tileHandler = TileHandler(typeList=['a','b','c','d','e'])
+    tileHandler.selfConnectable(typeName=['e',],value=1)
     tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='d',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='d',toTypeName='a',value=1,dual=True)
-
+    tileHandler.setConnectiability(fromTypeName='e',toTypeName=['a','b','c','d'],value=1,dual=True)
     print(f"tileHandler:\n {tileHandler}")
 
     num_elements = adj['num_elements']
@@ -201,6 +166,6 @@ if __name__ == "__main__":
     init_probs = jnp.ones((num_elements, numTypes)) / numTypes # (n_elements,n_types)
 
     probs=waveFunctionCollapse(init_probs,adj,tileHandler)
-    pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(height,width)
-    name_pattern = tileHandler.pattern_to_names(pattern)
-    print(f"pattern: \n{name_pattern}")
+    # pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(Nx,Ny,Nz)
+    # name_pattern = tileHandler.pattern_to_names(pattern)
+    # print(f"pattern: \n{name_pattern}")

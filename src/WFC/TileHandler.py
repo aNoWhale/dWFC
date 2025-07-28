@@ -6,11 +6,14 @@ from typing import List, Dict, Callable
 import jax
 import jax.numpy as jnp
 import numpy as np
+
+from src.WFC.Tile import Tile
+
 class TileHandler:
     def __init__(self, *args,**kwargs):
         typeList=kwargs.pop('typeList',[])
         self.typeList = typeList
-        self.typeMethod={}
+        self.typeMethod:Dict[str,Tile]={}
          #单元类型表
         self.typeNum = len(self.typeList)
         self._compatibility = np.zeros((len(self.typeList), len(self.typeList))) # 兼容性矩阵,1为兼容，0为不兼容
