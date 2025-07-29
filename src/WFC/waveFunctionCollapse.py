@@ -149,7 +149,7 @@ if __name__ == "__main__":
     #     data_dir=f"data",
     #     ele_type='HEX8',
     # )
-    # from src.WFC.buildAdjacency import build_hex8_adjacency_with_meshio
+    # from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
     # adj = build_hex8_adjacency_with_meshio(f'data/msh/{msh_name}')
 
     tileHandler = TileHandler(typeList=['a','b','c','d','e'])
