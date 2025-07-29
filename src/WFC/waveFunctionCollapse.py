@@ -74,8 +74,8 @@ def select_collapse(key, probs, tau=0.1):
 def update_neighbors(probs, neighbors, p_collapsed, compatibility):
     """向量化更新邻居概率"""
     def update_single(neighbor_prob):
-        p_neigh = jnp.einsum("...ij,...j->i", compatibility, p_collapsed)
-        p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob)
+        p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
+        p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob) #(d,i) (i,) ->(d,i) (1,i) -> (d,i) 
         # print(f"compatibiliy @ p_collapsed * neighbor_prob:\n{jnp.einsum('...ij,...j->...i',compatibility, p_collapsed)} * {neighbor_prob}")
         # print(f'p_neigh: {p_neigh}')
         norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
@@ -163,7 +163,7 @@ if __name__ == "__main__":
 
     num_elements = adj['num_elements']
     numTypes = tileHandler.typeNum
-    init_probs = jnp.ones((num_elements, numTypes)) / numTypes # (n_elements,n_types)
+    init_probs = jnp.ones((num_elements ,numTypes)) / numTypes # (n_elements, n_types)
 
     probs=waveFunctionCollapse(init_probs,adj,tileHandler)
     # pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(Nx,Ny,Nz)
