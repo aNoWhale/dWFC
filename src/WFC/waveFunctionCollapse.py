@@ -45,11 +45,12 @@ def collapsed_mask(probabilities, threshold=0.99):
     创建连续掩码标记已坍缩单元
     1 = 未坍缩, 0 = 已坍缩（接近 one-hot）
     """
+    #TODO 如果一次坍缩多个，这个mask可能会失效
     max_probs = jnp.max(probabilities, axis=-1, keepdims=True)
     return jax.nn.sigmoid(-1000 * (max_probs - threshold))
 
 @partial(jax.jit, static_argnames=('tau',))
-def select_collapse(key, probs, tau=0.1):
+def select_collapse(key, probs, tau=0.03):
     """
     calculate shannon entropy, give out mask by probability, modify shannon entropy by mask, select uncollapsed.
     """
@@ -63,12 +64,12 @@ def select_collapse(key, probs, tau=0.1):
     # 未坍缩: entropy_adj = entropy
     # 已坍缩: entropy_adj = max_entropy + 1
     max_entropy = jnp.max(entropy)
-    # print("max entropy: {}", max_entropy)
+    print(f"max entropy: {max_entropy}", )
     entropy_adj = entropy * mask + (1 - mask) * (max_entropy + 1.0)
 
     # 4. 转换为选择概率（最小熵对应最高概率）
     selection_logits = -entropy_adj  # 最小熵->最大logits
-    # print('modified logits:\n',selection_logits)
+    print('modified logits:\n',selection_logits)
     # 5. 使用Gumbel-Softmax采样位置
     flat_logits = selection_logits.reshape(-1)
 
@@ -95,7 +96,21 @@ def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
     return probs
 
 
-def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot=False,*args,**kwargs)->jnp.ndarray:
+def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|str=False,*args,**kwargs)->jnp.ndarray:
+    """a WFC function
+
+    Args:
+        init_probs (array): (n_cells,n_tileTypes)
+        adj_csr (Dict): a dict with neighbor CSR and directions CSR
+        tileHandler (TileHandler): a TileHandler to deal with Tiles
+        plot (bool|str, optional): '2d' or '3d' or False, give out result during the iter whether or not. Defaults to False.
+    
+    Kwargs:
+        points (array): vertices of cells
+
+    Returns:
+        jnp.ndarray: probs (n_cells,n_tileTypes)
+    """
 
     key = jax.random.PRNGKey(0)
     num_elements = adj_csr['num_elements']
@@ -104,13 +119,14 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot=False
     probs=init_probs
 
     should_stop = False
-
+    visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=0)
     pbar = tqdm.tqdm(total=num_elements, desc="collpasing", unit="tiles")
     while should_stop is False:
+        pbar.update(1)
         # 选择要坍缩的单元（最小熵单元）
         key, subkey = jax.random.split(key)
-        collapse_idx,max_entropy = select_collapse(subkey, probs, tau=0.1)
-        print(f"max entorpy: {max_entropy}")
+        collapse_idx,max_entropy = select_collapse(subkey, probs, tau=0.01)
+        # print(f"max entorpy: {max_entropy}")
         if max_entropy<0.2:
             should_stop=True
             print("####entropy reached stop condition####\n")
@@ -124,14 +140,17 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot=False
         neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
 
         neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs) #邻居所在的方向
-        # print(f"collapse_idx: {collapse_idx}", )
-        # print(f"neighbors: {neighbors}")
+        print(f"collapse_idx: {collapse_idx}", )
+        print(f"neighbors: {neighbors}")
         # 更新邻居的概率场
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
-        if plot:
-            visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=pbar.n)
-        # 更新进度
-        pbar.update(1)
+        if plot is not False:
+            if plot == '2d':
+                visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=pbar.n)
+            if plot == "3d":
+                #TODO 3D visualizer here
+                pass
+        
         if pbar.n > pbar.total:
             pbar.set_description_str("trying fix conflicts")
         print(f"probs: \n{probs}",)
@@ -175,10 +194,15 @@ if __name__ == "__main__":
     tileHandler.selfConnectable(typeName="c",direction="left",value=1)
     tileHandler.selfConnectable(typeName="d",direction="up",value=1)
     tileHandler.selfConnectable(typeName="e",direction='isotropy',value=1)
-    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c'],direction='down',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','d','b'],direction='down',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='a',toTypeName='c',direction='up',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d'],direction='left',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','a','c'],direction='left',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='b',toTypeName='d',direction='right',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='e',toTypeName='a',direction='up',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='e',toTypeName='b',direction='right',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='e',toTypeName='c',direction='down',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='e',toTypeName='d',direction='left',value=1,dual=True)
+
 
     print(f"tileHandler:\n {tileHandler}")
 
@@ -189,6 +213,6 @@ if __name__ == "__main__":
     figureManger=FigureManager()
     grid= generate_grid_vertices_vectorized(width+1,height+1)
     probs=waveFunctionCollapse(init_probs,adj,tileHandler,plot=True,points=adj['vertices'],figureManger=figureManger)
-    # pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(Nx,Ny,Nz)
-    # name_pattern = tileHandler.pattern_to_names(pattern)
-    # print(f"pattern: \n{name_pattern}")
+    pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(width,height)
+    name_pattern = tileHandler.pattern_to_names(pattern)
+    print(f"pattern: \n{name_pattern}")
