@@ -7,4 +7,5 @@ jax-fem/tests
 **/test.*
 Tutorials
 src/fem/data/
-data/img/
+data/img/**.jpg
+**.stp
