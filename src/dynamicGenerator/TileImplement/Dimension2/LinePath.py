@@ -8,14 +8,18 @@ class LinePath(Tile):
         """type you want
 
         Args:
-            lines (List[str]): a---ab---b
-                               |        |
-                              da  cen   bc
-                               |        |
-                               d---cd---c
-                               use ()-() to define a line.
+            lines (List[str]): \na---ab---b
+                               \n|        | 
+                               \nda  cen   bc 
+                               \n|        | 
+                               \nd---cd---c 
+                               \nuse a-b to define a line.
         """
         self.lines = lines
+    
+    @property
+    def properties(self):
+        return {}
 
     def build(self, points:np.ndarray, *args, **kwargs):
         lines=self.lines

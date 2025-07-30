@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import warnings
-from typing import List, Dict, Callable
+from typing import List, Dict, Callable, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -20,10 +20,19 @@ class TileHandler:
         \n:param: direction:str|List[str] -> name of directions,default:['isotropy']
         \n:param: typeList:str|List[str] -> name of types
         """
-        self.directionList:List[str] = kwargs.pop("direction",['isotropy'])
+        directionPair:Tuple[Tuple[str,str]] = kwargs.pop('direction',None)
         self.typeList = kwargs.pop('typeList',[])
+        self.oppositeDirection:Dict[str,str] = {}
 
+        directionList=[]
+        if directionPair is not None:
+            for pair in directionPair:
+                self.oppositeDirection[pair[0]]=pair[1]
+                self.oppositeDirection[pair[1]]=pair[0]
+                directionList.append(pair[0])
+                directionList.append(pair[1])
 
+        self.directionList:List[str] = ['isotropy'] if directionPair is None else directionList
         self.typeNum = len(self.typeList)
         self.directionNum=len(self.directionList)
         self.typeMethod:Dict[str,Tile]={}
@@ -31,7 +40,7 @@ class TileHandler:
         self._name_to_index: Dict[str, int] = {name: idx for idx, name in enumerate(self.typeList)}
         self._index_to_name: Dict[int, str] = {idx: name for idx, name in enumerate(self.typeList)}
 
-        self._dire_to_index: Dict[str, int] = {dire: idx for idx, dire in enumerate(self.directionList)}
+        self.dire_to_index: Dict[str, int] = {dire: idx for idx, dire in enumerate(self.directionList)}
         self._index_to_dire: Dict[int, str] = {idx: dire for idx, dire in enumerate(self.directionList)}
 
         self._compatibility = np.zeros((self.directionNum,len(self.typeList), len(self.typeList))) # 兼容性矩阵,1为兼容，0为不兼容
@@ -89,18 +98,35 @@ class TileHandler:
         except KeyError:
             raise ValueError(f"索引 '{index}' 超出范围 (0-{self.directionNum-1})") from None
 
-    def get_index_by_direction(self, direction: str) -> int:
-        try:
-            return self._dire_to_index[direction]
-        except KeyError:
-            raise ValueError(f"类型名称 '{direction}' 不存在于类型列表中") from None
+    def get_index_by_direction(self, direction: str | List[str]) -> int | List[int]:
+        """
+        获取方向的索引
+        :param direction: 方向名称或方向名称列表
+        :return: 方向索引或索引列表
+        """
+        # 处理单个方向的情况
+        if isinstance(direction, str):
+            try:
+                return self.dire_to_index[direction]
+            except KeyError:
+                raise ValueError(f"方向名称 '{direction}' 不存在于方向列表中") from None
+        # 处理方向列表的情况
+        elif isinstance(direction, list):
+            try:
+                return [self.dire_to_index[d] for d in direction]
+            except KeyError as e:
+                raise ValueError(f"方向名称 '{e.args[0]}' 不存在于方向列表中") from None
+        # 处理不支持的输入类型
+        else:
+            raise TypeError(f"参数类型必须是str或list[str]，但输入的是{type(direction)}")
 
 
     def setConnectiability(self,fromTypeName:str,toTypeName:str|List[str],direction:str|List[str]='isotropy',value=1,dual=True):
+        #TODO 在具有方向时的 dual需要再考虑一下,isotropy应当同时修改所有方向，
         j = self.get_index_by_name(fromTypeName)
         toTypeName = toTypeName if type(toTypeName) is list else list(toTypeName)
         direction = self.directionList if direction not in self.directionList else direction
-        print(f"{type(direction)}")
+        # print(f"{type(direction)}")
         direction = direction if type(direction) is list else [direction]
 
         for toName in toTypeName:
@@ -109,7 +135,9 @@ class TileHandler:
                 d=self.get_index_by_direction(dName)
                 self._compatibility[d,i,j]=value
                 if dual:
-                    self._compatibility[d,j,i]=value
+                    odName = self.oppositeDirection[dName]
+                    od =self.get_index_by_direction(odName)
+                    self._compatibility[od,j,i]=value
 
     def selfConnectable(self,typeName:str|List[str],direction:str|List[str]='isotropy',value=1):
         typeName = typeName if type(typeName) is list else list(typeName)
@@ -129,13 +157,14 @@ if __name__ == '__main__':
         def call(self):
             print('call')
     from src.dynamicGenerator.TileImplement.Cube import CF
-    tileHandler = TileHandler(typeList=['a','b','c',],direction=['right','left',"top","bottom","front","back"])
-    tileHandler.register(['d','e'],[CF,CF])
-    tileHandler.selfConnectable(typeName=['a','c'],value=1)
-    tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='e',toTypeName=['a','b','c','d'],direction='back',value=1,dual=True)
+    tileHandler = TileHandler(typeList=['a','b','c','d'],direction=(('up',"down"),("left","right")))
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName="b",direction="left",value=1,dual=True)
+    # tileHandler.register(['d','e'],[CF,CF])
+    # tileHandler.selfConnectable(typeName=['a','c'],value=1)
+    # tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',value=1,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',value=1,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='e',toTypeName=['a','b','c','d'],direction='back',value=1,dual=True)
 
     cube_points = [
         [0, 0, 0],  # 底面左前角

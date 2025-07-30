@@ -2,7 +2,7 @@ import os
 import sys
 import gmsh
 import jax
-# jax.config.update('jax_disable_jit', True)
+jax.config.update('jax_disable_jit', True)
 
 import jax.numpy as jnp
 from functools import partial
@@ -16,7 +16,7 @@ from src.WFC.gumbelSoftmax import gumbel_softmax
 from src.WFC.shannonEntropy import shannon_entropy
 from src.WFC.TileHandler import TileHandler
 
-import tqdm.rich as tqdm
+import tqdm as tqdm
 
 import scipy.sparse
 import numpy as np
@@ -29,7 +29,9 @@ def get_neighbors(csr, index):
     """获取指定索引的邻居列表"""
     start = csr['row_ptr'][index]
     end = csr['row_ptr'][index + 1]
-    return csr['col_idx'][start:end]
+    neighbors = csr['col_idx'][start:end]
+    neighbors_dirs = csr['directions'][start:end]
+    return neighbors, neighbors_dirs
 
 @partial(jax.jit, static_argnames=('threshold',))
 def collapsed_mask(probabilities, threshold=0.99):
@@ -71,7 +73,7 @@ def select_collapse(key, probs, tau=0.1):
 
 
 @partial(jax.jit, static_argnames=())
-def update_neighbors(probs, neighbors, p_collapsed, compatibility):
+def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
     """向量化更新邻居概率"""
     def update_single(neighbor_prob):
         p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
@@ -80,11 +82,10 @@ def update_neighbors(probs, neighbors, p_collapsed, compatibility):
         # print(f'p_neigh: {p_neigh}')
         norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
         return p_neigh / jnp.where(norm == 0, 1.0, norm)
-
-    for neighbor in neighbors:
+    for neighbor,dirs in zip(neighbors,dirs_index):
         prob=update_single(probs[neighbor])
         # print(f"update neighbor {neighbor} with {prob}")
-        probs = probs.at[neighbor].set(prob)
+        probs = probs.at[neighbor].set(prob[dirs])
     return probs
 
 
@@ -114,11 +115,13 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler)->jnp.ndar
         probs = probs.at[collapse_idx].set(p_collapsed)
 
         # 获取该单元的邻居
-        neighbors = get_neighbors(adj_csr, collapse_idx)
+        neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
+
+        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs) #邻居所在的方向
         # print(f"collapse_idx: {collapse_idx}", )
         # print(f"neighbors: {neighbors}")
         # 更新邻居的概率场
-        probs = update_neighbors(probs, neighbors, p_collapsed, tileHandler.compatibility)
+        probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
         # 更新进度
         pbar.update(1)
         if pbar.n > pbar.total:
@@ -152,13 +155,19 @@ if __name__ == "__main__":
     # from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
     # adj = build_hex8_adjacency_with_meshio(f'data/msh/{msh_name}')
 
-    tileHandler = TileHandler(typeList=['a','b','c','d','e'])
+    tileHandler = TileHandler(typeList=['a','b','c','d','e'],direction=(('up',"down"),("left","right"),))
     tileHandler.selfConnectable(typeName=['e',],value=1)
     tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='c',toTypeName='d',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='d',toTypeName='a',value=1,dual=True)
     tileHandler.setConnectiability(fromTypeName='e',toTypeName=['a','b','c','d'],value=1,dual=True)
+    from src.dynamicGenerator.TileImplement.Dimension2.LinePath import LinePath
+    tileHandler.register(typeName='a',class_type=LinePath(['da-bc','cen-cd']))
+    tileHandler.register(typeName='b',class_type=LinePath(['ab-cd','cen-da']))
+    tileHandler.register(typeName='c',class_type=LinePath(['da-bc','cen-ab']))
+    tileHandler.register(typeName='d',class_type=LinePath(['ab-cd','cen-bc']))
+    tileHandler.register(typeName='e',class_type=LinePath(['da-bc','ab-cd']))
     print(f"tileHandler:\n {tileHandler}")
 
     num_elements = adj['num_elements']

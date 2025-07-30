@@ -33,7 +33,7 @@ class Tile(ABC):
 
     @property
     @abstractmethod
-    def property(self):
+    def properties(self):
         """
         获取tile的属性。
         :return: tile属性的dict
