@@ -4,7 +4,7 @@ import numpy as np
 from typing import List
 
 class LinePath(Tile):
-    def __init__(self, lines: List[str]):
+    def __init__(self, lines: List[str],color='blue'):
         """type you want
 
         Args:
@@ -16,10 +16,11 @@ class LinePath(Tile):
                                \nuse a-b to define a line.
         """
         self.lines = lines
+        self._properties={"color":color}
     
     @property
     def properties(self):
-        return {}
+        return self._properties
 
     def build(self, points:np.ndarray, *args, **kwargs):
         lines=self.lines
@@ -39,34 +40,6 @@ class LinePath(Tile):
             result = direction.split('-')
             line.append([p[result[0]],p[result[1]]])
         return line
-            # if direction=="ab,bc":
-            #     line.append([ab,bc])
-            # if direction=="ab-cd":
-            #     line.append([ab,cd])
-            # if direction=="ab-da":
-            #     line.append([ab,da])
-            
-            # if direction=="bc-cd":
-            #     line.append([bc,cd])
-            # if direction == "bc-da":
-            #     line.append([bc,da])
 
-            # if direction=="cd-da":
-            #     line.append([cd,da])
-            
-            # if direction=="a-b":
-            #     line.append([a,b])
-            # if direction=="a-c":
-            #     line.append([a,c])
-            # if direction=="a-d":
-            #     line.append([a,d])
-            
-            # if direction=="b-c":
-            #     line.append([b,c])
-            # if direction=="b-d":
-            #     line.append([b,d])
-
-            # if direction=="c-d":
-            #     line.append([c,d])
 
         

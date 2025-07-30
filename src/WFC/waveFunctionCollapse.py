@@ -184,11 +184,11 @@ if __name__ == "__main__":
 
     tileHandler = TileHandler(typeList=['a','b','c','d','e'],direction=(('up',"down"),("left","right"),))
     from src.dynamicGenerator.TileImplement.Dimension2.LinePath import LinePath
-    tileHandler.register(typeName='a',class_type=LinePath(['da-bc','cen-cd']))
-    tileHandler.register(typeName='b',class_type=LinePath(['ab-cd','cen-da']))
-    tileHandler.register(typeName='c',class_type=LinePath(['da-bc','cen-ab']))
-    tileHandler.register(typeName='d',class_type=LinePath(['ab-cd','cen-bc']))
-    tileHandler.register(typeName='e',class_type=LinePath(['da-bc','ab-cd']))
+    tileHandler.register(typeName='a',class_type=LinePath(['da-bc','cen-cd'],color='blue'))
+    tileHandler.register(typeName='b',class_type=LinePath(['ab-cd','cen-da'],color='green'))
+    tileHandler.register(typeName='c',class_type=LinePath(['da-bc','cen-ab'],color='yellow'))
+    tileHandler.register(typeName='d',class_type=LinePath(['ab-cd','cen-bc'],color='red'))
+    tileHandler.register(typeName='e',class_type=LinePath(['da-bc','ab-cd'],color='magenta'))
     tileHandler.selfConnectable(typeName="a",direction='left',value=1)
     tileHandler.selfConnectable(typeName='b',direction="up",value=1)
     tileHandler.selfConnectable(typeName="c",direction="left",value=1)
@@ -212,7 +212,7 @@ if __name__ == "__main__":
     from src.utiles.generateMsh import generate_grid_vertices_vectorized
     figureManger=FigureManager()
     grid= generate_grid_vertices_vectorized(width+1,height+1)
-    probs=waveFunctionCollapse(init_probs,adj,tileHandler,plot=True,points=adj['vertices'],figureManger=figureManger)
+    probs=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManger)
     pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(width,height)
     name_pattern = tileHandler.pattern_to_names(pattern)
     print(f"pattern: \n{name_pattern}")

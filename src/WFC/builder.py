@@ -10,14 +10,16 @@ def visualizer_2D(tileHandler:TileHandler,probs:np.array,points:np.array,figureM
     probs = np.array(probs)
     probs = probs.reshape(-1,tileHandler.typeNum)
     points = np.array(points)
+
     for i in range(probs.shape[0]):
         for j in range(probs.shape[1]):
             typeName=tileHandler._index_to_name[j]
             lines=tileHandler.typeMethod[typeName].build(points=points[i,:],)
+            color=tileHandler.typeMethod[typeName].properties["color"]
             for line in lines:
                 ax.plot([line[0][0],line[1][0]],
                         [line[0][1],line[1][1]],
-                        linewidth=20,color='blue',alpha=probs[i,j])
+                        linewidth=20,color=color,alpha=probs[i,j])
                 
     figureManager.save(f'data/img/{epoch}.jpg')
     ax.cla()
