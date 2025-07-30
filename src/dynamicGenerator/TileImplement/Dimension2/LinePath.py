@@ -32,9 +32,9 @@ class LinePath(Tile):
         p=p|{"ab": np.mean([p["a"],p["b"]],axis=0),
             "bc": np.mean([p["b"],p["c"]],axis=0),
             "cd": np.mean([p["c"],p["d"]],axis=0),
-            "d": np.mean([p["a"],p["d"]],axis=0),
+            "da": np.mean([p["a"],p["d"]],axis=0),
         }
-        line=[p["cen"],p["cen"]],
+        line=[[p["cen"],p["cen"]]]
         for direction in lines:
             result = direction.split('-')
             line.append([p[result[0]],p[result[1]]])

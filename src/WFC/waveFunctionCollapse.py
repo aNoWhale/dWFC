@@ -12,16 +12,22 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 
-from src.WFC.gumbelSoftmax import gumbel_softmax
-from src.WFC.shannonEntropy import shannon_entropy
-from src.WFC.TileHandler import TileHandler
-
 import tqdm as tqdm
 
 import scipy.sparse
 import numpy as np
+
+
 from collections import defaultdict
 from scipy.sparse import csr_matrix
+
+from src.WFC.gumbelSoftmax import gumbel_softmax
+from src.WFC.shannonEntropy import shannon_entropy
+from src.WFC.TileHandler import TileHandler
+from src.WFC.builder import visualizer_2D
+from src.WFC.FigureManager import FigureManager
+
+
 
 
 # @jax.jit
@@ -89,7 +95,7 @@ def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
     return probs
 
 
-def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler)->jnp.ndarray:
+def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot=False,*args,**kwargs)->jnp.ndarray:
 
     key = jax.random.PRNGKey(0)
     num_elements = adj_csr['num_elements']
@@ -122,6 +128,8 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler)->jnp.ndar
         # print(f"neighbors: {neighbors}")
         # 更新邻居的概率场
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
+        if plot:
+            visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=pbar.n)
         # 更新进度
         pbar.update(1)
         if pbar.n > pbar.total:
@@ -156,25 +164,31 @@ if __name__ == "__main__":
     # adj = build_hex8_adjacency_with_meshio(f'data/msh/{msh_name}')
 
     tileHandler = TileHandler(typeList=['a','b','c','d','e'],direction=(('up',"down"),("left","right"),))
-    tileHandler.selfConnectable(typeName=['e',],value=1)
-    tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='c',toTypeName='d',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='d',toTypeName='a',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='e',toTypeName=['a','b','c','d'],value=1,dual=True)
     from src.dynamicGenerator.TileImplement.Dimension2.LinePath import LinePath
     tileHandler.register(typeName='a',class_type=LinePath(['da-bc','cen-cd']))
     tileHandler.register(typeName='b',class_type=LinePath(['ab-cd','cen-da']))
     tileHandler.register(typeName='c',class_type=LinePath(['da-bc','cen-ab']))
     tileHandler.register(typeName='d',class_type=LinePath(['ab-cd','cen-bc']))
     tileHandler.register(typeName='e',class_type=LinePath(['da-bc','ab-cd']))
+    tileHandler.selfConnectable(typeName="a",direction='left',value=1)
+    tileHandler.selfConnectable(typeName='b',direction="up",value=1)
+    tileHandler.selfConnectable(typeName="c",direction="left",value=1)
+    tileHandler.selfConnectable(typeName="d",direction="up",value=1)
+    tileHandler.selfConnectable(typeName="e",direction='isotropy',value=1)
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c'],direction='down',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName='c',direction='up',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d'],direction='left',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='b',toTypeName='d',direction='right',value=1,dual=True)
+
     print(f"tileHandler:\n {tileHandler}")
 
     num_elements = adj['num_elements']
     numTypes = tileHandler.typeNum
     init_probs = jnp.ones((num_elements ,numTypes)) / numTypes # (n_elements, n_types)
-
-    probs=waveFunctionCollapse(init_probs,adj,tileHandler)
+    from src.utiles.generateMsh import generate_grid_vertices_vectorized
+    figureManger=FigureManager()
+    grid= generate_grid_vertices_vectorized(width+1,height+1)
+    probs=waveFunctionCollapse(init_probs,adj,tileHandler,plot=True,points=adj['vertices'],figureManger=figureManger)
     # pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(Nx,Ny,Nz)
     # name_pattern = tileHandler.pattern_to_names(pattern)
     # print(f"pattern: \n{name_pattern}")

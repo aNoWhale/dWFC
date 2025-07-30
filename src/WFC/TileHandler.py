@@ -122,13 +122,13 @@ class TileHandler:
 
 
     def setConnectiability(self,fromTypeName:str,toTypeName:str|List[str],direction:str|List[str]='isotropy',value=1,dual=True):
-        #TODO 在具有方向时的 dual需要再考虑一下,isotropy应当同时修改所有方向，
+        #TODO 在具有方向时的,isotropy应当同时修改所有方向，
         j = self.get_index_by_name(fromTypeName)
         toTypeName = toTypeName if type(toTypeName) is list else list(toTypeName)
         direction = self.directionList if direction not in self.directionList else direction
         # print(f"{type(direction)}")
         direction = direction if type(direction) is list else [direction]
-
+        direction = self.directionList if (len(self.directionList) != 1 and direction==['isotropy']) else direction
         for toName in toTypeName:
             for dName in direction:
                 i=self.get_index_by_name(toName)
@@ -142,7 +142,7 @@ class TileHandler:
     def selfConnectable(self,typeName:str|List[str],direction:str|List[str]='isotropy',value=1):
         typeName = typeName if type(typeName) is list else list(typeName)
         for name in typeName:
-            self.setConnectiability(fromTypeName=name,toTypeName=name,direction=direction,value=value)
+            self.setConnectiability(fromTypeName=name,toTypeName=name,direction=direction,value=value,dual=True)
         pass
 
     def pattern_to_names(self, pattern) -> np.ndarray:
@@ -159,23 +159,13 @@ if __name__ == '__main__':
     from src.dynamicGenerator.TileImplement.Cube import CF
     tileHandler = TileHandler(typeList=['a','b','c','d'],direction=(('up',"down"),("left","right")))
     tileHandler.setConnectiability(fromTypeName='a',toTypeName="b",direction="left",value=1,dual=True)
+    tileHandler.selfConnectable(typeName='c',value=1)
     # tileHandler.register(['d','e'],[CF,CF])
     # tileHandler.selfConnectable(typeName=['a','c'],value=1)
     # tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',value=1,dual=True)
     # tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',value=1,dual=True)
     # tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',value=1,dual=True)
     # tileHandler.setConnectiability(fromTypeName='e',toTypeName=['a','b','c','d'],direction='back',value=1,dual=True)
-
-    cube_points = [
-        [0, 0, 0],  # 底面左前角
-        [1, 0, 0],  # 底面右前角
-        [1, 0, 1],  # 顶面右前角
-        [0, 0, 1],  # 顶面左前角
-        [0, 1, 0],  # 底面左后角
-        [1, 1, 0],  # 底面右后角
-        [1, 1, 1],  # 顶面右后角
-        [0, 1, 1]  # 顶面左后角
-    ]
     # tileHandler.typeMethod['d'].build(cube_points)
 
     print(tileHandler)

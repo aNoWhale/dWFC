@@ -29,7 +29,7 @@ class CubeTile(Tile):
     """
     RADIUS = 0.03
     @property
-    def property(self):
+    def properties(self):
         return {"strength": 10000,
                 "dieralect": 200}
 

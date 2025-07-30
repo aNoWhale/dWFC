@@ -1,3 +1,5 @@
+import numpy as np
+
 def generate_cube_hex_mesh(
     cube_size=1.0, element_size=0.1, output_file="cube_mesh.msh"
 ):
@@ -83,3 +85,26 @@ def generate_cube_hex_mesh(
     gmsh.finalize()
 
     return os.path.abspath(output_file)
+
+
+def generate_grid_vertices_vectorized(width, height):
+    """向量化实现创建网格顶点数组"""
+    # 创建顶点网格
+    x = np.linspace(0, 1, width + 1)
+    y = np.linspace(0, 1, height + 1)
+    X, Y = np.meshgrid(x, y)
+    
+    # 创建索引网格
+    i_idx, j_idx = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
+    
+    # 计算每个方格的四个顶点
+    bottom_left = np.stack([X[i_idx, j_idx], Y[i_idx, j_idx]], axis=-1)
+    bottom_right = np.stack([X[i_idx, j_idx+1], Y[i_idx, j_idx+1]], axis=-1)
+    top_right = np.stack([X[i_idx+1, j_idx+1], Y[i_idx+1, j_idx+1]], axis=-1)
+    top_left = np.stack([X[i_idx+1, j_idx], Y[i_idx+1, j_idx]], axis=-1)
+    
+    # 组合成最终形状 (height, width, 4, 2)
+    grid = np.stack([bottom_left, bottom_right, top_right, top_left], axis=2)
+    
+    # 展平为 (num_cells, 4, 2)
+    return grid.reshape(-1, 4, 2)
