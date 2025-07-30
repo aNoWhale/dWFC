@@ -5,7 +5,6 @@ from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
 from OCC.Core.STEPControl import STEPControl_Writer, STEPControl_AsIs
 from OCC.Core.IFSelect import IFSelect_RetDone
 from OCC.Core.Interface import Interface_Static
-from OCC.Core.TopTools import TopTools_ListOfShape
 
 
 
@@ -76,7 +75,7 @@ class CubeTile(Tile):
         根据points和radius添加顶点球体
         """
         pts = [gp_Pnt(x, y, z) for x, y, z in points]
-        RADIUS = radius  #可调球半径
+        RADIUS = radius * 1  #可调球半径
         for p in pts:
             sphere = BRepPrimAPI_MakeSphere(p, RADIUS).Shape()
             # 布尔加
