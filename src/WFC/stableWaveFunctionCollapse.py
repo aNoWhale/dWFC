@@ -80,6 +80,23 @@ def select_collapse(key, probs, tau=0.03):
 
 
 @partial(jax.jit, static_argnames=())
+def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite_index, compatibility):
+    """向量化更新邻居概率"""
+    def update_single(neighbor_prob,opposite_dire_index):
+        p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
+        # p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob) #(d,i) (i,) ->(d,i) (1,i) -> (d,i) 
+
+        norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
+        return p_c / jnp.where(norm == 0, 1.0, norm)
+    p=probs[collapse_id]
+    for neighbor,di,odi in zip(neighbors,dirs_index, dirs_opposite_index):
+        p=p*update_single(probs[neighbor],odi)
+    norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
+    p = p / jnp.where(norm == 0, 1.0, norm)
+    probs=probs.at[collapse_id].set(p)
+    return probs
+
+@partial(jax.jit, static_argnames=())
 def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
     """向量化更新邻居概率"""
     def update_single(neighbor_prob):
@@ -131,19 +148,31 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
             should_stop=True
             print("####entropy reached stop condition####\n")
             break
+        # 获取该单元的邻居
+        neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
+        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs) #邻居所在的方向
+        print(f"collapse_idx: {collapse_idx}", )
+        print(f"neighbors: {neighbors}")
+
+        # 根据邻居更新坍缩单元格的概率
+        neighbors_dirs_opposite_index=[]
+        for index in neighbors_dirs_index:
+            direction=tileHandler.get_direction_by_index(index)
+            opposite_dire=tileHandler.get_opposite_direction_by_direction(direction)
+            neighbors_dirs_opposite_index.append(tileHandler.get_index_by_direction(opposite_dire))
+        probs = update_by_neighbors(probs, collapse_idx, neighbors, neighbors_dirs_index,neighbors_dirs_opposite_index, tileHandler.compatibility)
+        print(f"updated by neighbors: \n{probs}")
+        
+        
         # 坍缩选定的单元
         key, subkey = jax.random.split(key)
         p_collapsed = gumbel_softmax(subkey,probs[collapse_idx],tau=1e-3,hard=True,axis=-1,eps=1e-10)
         probs = probs.at[collapse_idx].set(p_collapsed)
 
-        # 获取该单元的邻居
-        neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
-
-        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs) #邻居所在的方向
-        print(f"collapse_idx: {collapse_idx}", )
-        print(f"neighbors: {neighbors}")
-        # 更新邻居的概率场
+        # 更新邻居的概率
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
+        print(f"updated neighbors: \n{probs}")
+
         if plot is not False:
             if plot == '2d':
                 visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=pbar.n)

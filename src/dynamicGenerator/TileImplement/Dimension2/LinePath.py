@@ -17,7 +17,8 @@ class LinePath(Tile):
         """
         self.lines = lines
         self._properties={"color":color}
-    
+    def __repr__(self):
+        return f"LinePath<{str(self.lines)}>"
     @property
     def properties(self):
         return self._properties

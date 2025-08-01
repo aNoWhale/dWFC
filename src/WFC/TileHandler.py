@@ -97,6 +97,10 @@ class TileHandler:
             return self._index_to_dire[index]
         except KeyError:
             raise ValueError(f"索引 '{index}' 超出范围 (0-{self.directionNum-1})") from None
+    
+    def get_opposite_direction_by_direction(self, direction: str) -> str:
+        return self.oppositeDirection[direction]
+
 
     def get_index_by_direction(self, direction: str | List[str]) -> int | List[int]:
         """
