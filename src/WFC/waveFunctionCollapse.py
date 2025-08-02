@@ -125,7 +125,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         # 选择要坍缩的单元（最小熵单元）
         key, subkey = jax.random.split(key)
         collapse_idx,max_entropy = select_collapse(subkey, probs, tau=1e-3)
-        # print(f"max entorpy: {max_entropy}")
+        print(f"max entorpy: {max_entropy}")
         pbar.update(1)
         if max_entropy<0.2:
             should_stop=True

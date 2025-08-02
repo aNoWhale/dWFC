@@ -112,6 +112,34 @@ def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
         probs = probs.at[neighbor].set(prob[dirs])
     return probs
 
+def collapse(subkey,probs,max_rerolls=3,zero_threshold=1e-5,k=1000.0,tau=1e-3):
+    near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs)) #大于threshold ~=0， 小于threshold ~= 1
+    # 声明空间
+    gumbel_output = probs * 0  # 初始化为全零
+    def body_fn(state, i):
+        reroll_count, gumbel, subkey = state
+        # 当前步骤的Gumbel采样
+        current_gumbel = gumbel_softmax(subkey,probs,tau=tau,hard=True,axis=-1,eps=1e-10) # 输出(0...,1,...,0)
+        # 检测是否选择了接近零的项
+        chosen_near_zero = jnp.sum(current_gumbel * near_zero_mask) # 如果选择到了接近零项， sum ~= 1
+        should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5)) # 以0.5为分界，大于0.5 ~=1， 小于0.5 ~=0
+        
+        # 重新选择逻辑：混合新旧采样
+        new_gumbel = (
+            (1 - should_reroll) * current_gumbel + 
+            should_reroll * gumbel
+        ) # no reroll ~= current, reroll ~= gumbel
+        new_gumbel = new_gumbel/jnp.sum(new_gumbel,axis=-1,keepdims=False)
+        # 更新状态
+        new_reroll = reroll_count + should_reroll
+        key, sub_key = jax.random.split(subkey)
+        return (new_reroll, new_gumbel, sub_key), None
+    initial_state = (jnp.array(0.0), gumbel_output, subkey) # status, inputs
+    (total_rerolls, final_gumbel, key), _ = jax.lax.scan( body_fn, initial_state, jnp.arange(max_rerolls) ) # 
+    
+    # 最终确保至少有一个有效选择
+    return final_gumbel, total_rerolls, key
+    
 
 def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|str=False,*args,**kwargs)->jnp.ndarray:
     """a WFC function
@@ -140,9 +168,10 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
     pbar = tqdm.tqdm(total=num_elements, desc="collpasing", unit="tiles")
     while should_stop is False:
         # 选择要坍缩的单元（最小熵单元）
+        print(f"#epoch: {pbar.n}")
         key, subkey = jax.random.split(key)
         collapse_idx,max_entropy = select_collapse(subkey, probs, tau=1e-3)
-        # print(f"max entorpy: {max_entropy}")
+        print(f"max entorpy: {max_entropy}")
         pbar.update(1)
         if max_entropy<0.2:
             should_stop=True
@@ -161,17 +190,19 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
             opposite_dire=tileHandler.get_opposite_direction_by_direction(direction)
             neighbors_dirs_opposite_index.append(tileHandler.get_index_by_direction(opposite_dire))
         probs = update_by_neighbors(probs, collapse_idx, neighbors, neighbors_dirs_index,neighbors_dirs_opposite_index, tileHandler.compatibility)
-        print(f"updated by neighbors: \n{probs}")
+        # print(f"updated by neighbors: \n{probs}")
         
         
         # 坍缩选定的单元
         key, subkey = jax.random.split(key)
-        p_collapsed = gumbel_softmax(subkey,probs[collapse_idx],tau=1e-3,hard=True,axis=-1,eps=1e-10)
+        # p_collapsed = gumbel_softmax(subkey,probs[collapse_idx],tau=1e-3,hard=True,axis=-1,eps=1e-10)
+        p_collapsed, _ , key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=1e-5, tau=1e-3,k=1000)
+        print(f"p_collapsed:{p_collapsed}")
         probs = probs.at[collapse_idx].set(p_collapsed)
 
         # 更新邻居的概率
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
-        print(f"updated neighbors: \n{probs}")
+        # print(f"updated neighbors: \n{probs}")
 
         if plot is not False:
             if plot == '2d':
@@ -258,7 +289,7 @@ if __name__ == "__main__":
     # tileHandler.setConnectiability(fromTypeName='c',toTypeName='d',direction='right',value=0,dual=True)
     # tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='up',value=0,dual=True)
     # tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='down',value=0,dual=True)
-    print(f"tileHandler:\n {tileHandler}")
+    # print(f"tileHandler:\n {tileHandler}")
 
     num_elements = adj['num_elements']
     numTypes = tileHandler.typeNum
