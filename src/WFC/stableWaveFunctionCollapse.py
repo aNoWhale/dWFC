@@ -112,34 +112,95 @@ def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
         probs = probs.at[neighbor].set(prob[dirs])
     return probs
 
-def collapse(subkey,probs,max_rerolls=3,zero_threshold=1e-5,k=1000.0,tau=1e-3):
-    near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs)) #大于threshold ~=0， 小于threshold ~= 1
-    # 声明空间
-    gumbel_output = probs * 0  # 初始化为全零
+# def collapse(subkey,probs,max_rerolls=3,zero_threshold=1e-5,k=1000.0,tau=1e-3):
+#     near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs)) #大于threshold ~=0， 小于threshold ~= 1
+#     # 声明空间
+#     gumbel_output = probs * 0  # 初始化为全零
+    
+#     def body_fn(state, i):
+#         reroll_count, gumbel, subkey = state
+#         # 当前步骤的Gumbel采样
+#         current_gumbel = gumbel_softmax(subkey,probs,tau=tau,hard=True,axis=-1,eps=1e-10) # 输出(0...,1,...,0)
+#         # 检测是否选择了接近零的项
+#         chosen_near_zero = jnp.sum(current_gumbel * near_zero_mask) # 如果选择到了接近零项， sum ~= 1
+#         should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5)) # 以0.5为分界，大于0.5 ~=1， 小于0.5 ~=0
+        
+#         # 重新选择逻辑：混合新旧采样
+#         new_gumbel = (
+#             (1 - should_reroll) * current_gumbel + 
+#             should_reroll * gumbel
+#         ) # no reroll ~= current, reroll ~= gumbel
+#         new_gumbel = new_gumbel/jnp.sum(new_gumbel,axis=-1,keepdims=False)
+#         # 更新状态
+#         new_reroll = reroll_count + should_reroll
+#         key, sub_key = jax.random.split(subkey)
+#         return (new_reroll, new_gumbel, key), None
+#     initial_state = (jnp.array(0.0), gumbel_output, subkey) # status, inputs
+#     (total_rerolls, final_gumbel, key), _ = jax.lax.scan( body_fn, initial_state, jnp.arange(max_rerolls) ) # 
+    
+#     # 最终确保至少有一个有效选择
+#     return final_gumbel, total_rerolls, key
+    
+def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e-3):
+    near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs))
+    
+    # 初始化为有效采样（避免全零问题）
+    initial_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
+    key, subkey = jax.random.split(subkey)
+    
+    # 检查初始采样是否有效
+    chosen_near_zero = jnp.sum(initial_gumbel * near_zero_mask)
+    should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
+    
+    # 收敛阈值：当重选概率<0.01时视为稳定
+    CONVERGENCE_THRESHOLD = 0.01
+    
+    # 使用cond实现提前终止
+    def continue_scan(should_reroll):
+        return should_reroll > CONVERGENCE_THRESHOLD
+
+    # 完整的循环扫描（只有初始需要重选时才执行）
+    final_gumbel, total_rerolls, key = jax.lax.cond(
+        continue_scan(should_reroll),
+        true_fun=lambda: full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
+                                       max_rerolls, zero_threshold, k, tau),
+        false_fun=lambda: (initial_gumbel, jnp.array(0.0), subkey)
+    )
+     
+    return final_gumbel, total_rerolls, key
+
+def full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
+                max_rerolls, zero_threshold, k, tau):
+    """执行完整的重选扫描循环"""
     def body_fn(state, i):
         reroll_count, gumbel, subkey = state
-        # 当前步骤的Gumbel采样
-        current_gumbel = gumbel_softmax(subkey,probs,tau=tau,hard=True,axis=-1,eps=1e-10) # 输出(0...,1,...,0)
-        # 检测是否选择了接近零的项
-        chosen_near_zero = jnp.sum(current_gumbel * near_zero_mask) # 如果选择到了接近零项， sum ~= 1
-        should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5)) # 以0.5为分界，大于0.5 ~=1， 小于0.5 ~=0
+        current_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
+        key, subkey = jax.random.split(subkey)
         
-        # 重新选择逻辑：混合新旧采样
-        new_gumbel = (
-            (1 - should_reroll) * current_gumbel + 
-            should_reroll * gumbel
-        ) # no reroll ~= current, reroll ~= gumbel
-        new_gumbel = new_gumbel/jnp.sum(new_gumbel,axis=-1,keepdims=False)
-        # 更新状态
-        new_reroll = reroll_count + should_reroll
-        key, sub_key = jax.random.split(subkey)
-        return (new_reroll, new_gumbel, sub_key), None
-    initial_state = (jnp.array(0.0), gumbel_output, subkey) # status, inputs
-    (total_rerolls, final_gumbel, key), _ = jax.lax.scan( body_fn, initial_state, jnp.arange(max_rerolls) ) # 
+        # 检测是否需要重选
+        chosen_near_zero = jnp.sum(current_gumbel * near_zero_mask)
+        should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
+        
+        # 混合新旧采样
+        new_gumbel = (1 - should_reroll) * current_gumbel + should_reroll * gumbel
+        new_gumbel = new_gumbel / (jnp.sum(new_gumbel, axis=-1, keepdims=True) + 1e-8)
+        
+        # 更新重选计数（只累计实际发生的重选）
+        new_reroll = reroll_count + jnp.clip(should_reroll, 0, 1)
+        
+        # 返回更新后的状态
+        return (new_reroll, new_gumbel, key), should_reroll
     
-    # 最终确保至少有一个有效选择
+    initial_state = (jnp.array(1.0), initial_gumbel, subkey)
+    
+    # 执行扫描，同时跟踪收敛情况
+    (total_rerolls, final_gumbel, key), reroll_probs = jax.lax.scan(
+        body_fn, 
+        initial_state, 
+        jnp.arange(max_rerolls)
+    )
+    
     return final_gumbel, total_rerolls, key
-    
 
 def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|str=False,*args,**kwargs)->jnp.ndarray:
     """a WFC function
