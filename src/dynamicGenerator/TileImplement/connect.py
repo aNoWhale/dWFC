@@ -13,7 +13,7 @@ import numpy as np
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
 import itertools
 from OCC.Core.TopTools import TopTools_ListOfShape
-from OCC.Core.BOPAlgo import BOPAlgo_Options
+from OCC.Core.BOPAlgo import BOPAlgo_Options,BOPAlgo_GlueFull,BOPAlgo_GlueOff,BOPAlgo_GlueShift, BOPAlgo_Builder
 
 
 import tqdm
@@ -77,7 +77,11 @@ if __name__ == '__main__':
     # 用生成器+增量 fuse，避免一次性占满内存
     fuse = BRepAlgoAPI_Fuse()
     fuse.SetRunParallel(True)  # 开启并行计算
+    fuse.SetNonDestructive(True)  # 非破坏性模式
+    fuse.SetGlue(BOPAlgo_GlueOff) # 粘合
 
+    builder = BOPAlgo_Builder()
+    builder.SetRunParallel(True)
     # 初始化结果形状
     result_shape = None
     shifts = [(dx, dy, dz) for dx in range(4) for dy in range(4) for dz in range(4)]
@@ -102,21 +106,12 @@ if __name__ == '__main__':
                 
                 # 设置Tools（当前已融合的结果）
                 tools_list.Append(result_shape)
-                
-                # 配置Fuse对象
-                fuse.SetArguments(args_list)
-                fuse.SetTools(tools_list)
-                
-                # 执行融合
-                fuse.Build()
+                builder.AddArgument(cube)
                 del args_list
                 del tools_list
-                if fuse.IsDone():
-                    # 更新结果为融合后的形状（单个TopoDS_Shape对象）
-                    result_shape = fuse.Shape()
-                else:
-                    print(f"融合失败于位置 ({dx},{dy},{dz})")
             pbar.update(1)
+        builder.Perform()
+        result_shape=builder.Shape()
     Cubic.write_stp('cubes.stp', result_shape)
 
 
