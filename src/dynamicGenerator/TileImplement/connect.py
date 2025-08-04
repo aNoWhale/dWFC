@@ -1,9 +1,18 @@
+import os
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+sys.path.append(project_root)
+
+
 from src.dynamicGenerator.TileImplement.Cube import *
 import numpy as np
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
 import itertools
 from OCC.Core.TopTools import TopTools_ListOfShape
-
+from OCC.Core.BOPAlgo import BOPAlgo_Options
+import tqdm
 
 
 
@@ -52,7 +61,6 @@ if __name__ == '__main__':
     # result_shape = BRepAlgoAPI_Fuse(rs8, result_shape).Shape()
 
 
-
     base_pts = [
         [0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1],
         [0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]
@@ -60,15 +68,25 @@ if __name__ == '__main__':
 
     shifts = itertools.product(range(4), repeat=3)  # 100×100×100 位移
 
-    # 用生成器+增量 fuse，避免一次性占满内存
+    fuse_processor = BRepAlgoAPI_Fuse()
+    fuse_processor.SetRunParallel(True)  # 关键优化：开启并行计算
     result_shape = None
+    result_shape = None
+    pbar = tqdm.tqdm(total=4**3, desc="", unit="")
     for dx, dy, dz in shifts:
         cube = FCCZ.build([[x + dx, y + dy, z + dz] for x, y, z in base_pts])
         if result_shape is None:
             result_shape = cube
         else:
-            result_shape = BRepAlgoAPI_Fuse(cube, result_shape).Shape()
-
+            fuse_processor.SetArguments([cube])
+            fuse_processor.SetTools([result_shape])
+            fuse_processor.Build()
+            if not fuse_processor.IsDone():
+                print(f"Warning: Fusion failed at ({dx},{dy},{dz})")
+            else:
+                result_shape = fuse_processor.Shape()
+        pbar.update(1)
+    pbar.close()
     Cubic.write_stp('cubes.stp', result_shape)
 
 
