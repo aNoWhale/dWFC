@@ -1,9 +1,21 @@
+
+import os
+import sys
+# 获取当前文件所在目录
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# 获取项目根目录（假设当前文件在 src/WFC 目录下）
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+print(f"{project_root}")
+sys.path.append(project_root)
+
 from src.dynamicGenerator.TileImplement.Cube import *
 import numpy as np
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
 import itertools
 from OCC.Core.TopTools import TopTools_ListOfShape
 from OCC.Core.BOPAlgo import BOPAlgo_Options
+
+
 import tqdm
 
 
@@ -61,26 +73,50 @@ if __name__ == '__main__':
 
     shifts = itertools.product(range(4), repeat=3)  # 100×100×100 位移
 
+
     # 用生成器+增量 fuse，避免一次性占满内存
-    result_shape = TopTools_ListOfShape()
-    pbar = tqdm.tqdm(total=4**3, desc="", unit="")
-    arg_shapes = TopTools_ListOfShape()
     fuse = BRepAlgoAPI_Fuse()
-    fuse.SetRunParallel( True)
-    for dx, dy, dz in shifts:
-        cube = FCCZ.build([[x + dx, y + dy, z + dz] for x, y, z in base_pts])
-        arg_shapes.Append(cube)
-        # 2. 一次性融合
-        fuse.SetArguments(arg_shapes)  # 所有待融合对象
-        fuse.SetTools(result_shape)  # 无 tool，直接全部融合
-        fuse.Build()
-        if fuse.IsDone():
-            result_shape.Clear()
-            result_shape.Append(fuse.Shape())
-        else:
-            raise RuntimeError("Fuse failed")
-        pbar.update(1)
-    pbar.close()
+    fuse.SetRunParallel(True)  # 开启并行计算
+
+    # 初始化结果形状
+    result_shape = None
+    shifts = [(dx, dy, dz) for dx in range(4) for dy in range(4) for dz in range(4)]
+
+    # 创建可复用的列表对象
+    args_list = TopTools_ListOfShape()
+    tools_list = TopTools_ListOfShape()
+
+    with tqdm.tqdm(total=len(shifts), desc="Fusing cubes", unit="cube") as pbar:
+        for dx, dy, dz in shifts:
+            cube = FCCZ.build([[x + dx, y + dy, z + dz] for x, y, z in base_pts])
+            
+            if result_shape is None:
+                # 第一个立方体直接赋值
+                result_shape = cube
+            else:
+                # 准备参数
+                args_list = TopTools_ListOfShape()
+                tools_list = TopTools_ListOfShape()
+                # 设置Arguments（要添加的新立方体）
+                args_list.Append(cube)
+                
+                # 设置Tools（当前已融合的结果）
+                tools_list.Append(result_shape)
+                
+                # 配置Fuse对象
+                fuse.SetArguments(args_list)
+                fuse.SetTools(tools_list)
+                
+                # 执行融合
+                fuse.Build()
+                del args_list
+                del tools_list
+                if fuse.IsDone():
+                    # 更新结果为融合后的形状（单个TopoDS_Shape对象）
+                    result_shape = fuse.Shape()
+                else:
+                    print(f"融合失败于位置 ({dx},{dy},{dz})")
+            pbar.update(1)
     Cubic.write_stp('cubes.stp', result_shape)
 
 

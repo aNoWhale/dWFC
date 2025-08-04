@@ -1,16 +1,17 @@
 import os
 import sys
+# 获取当前文件所在目录
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# 获取项目根目录（假设当前文件在 src/WFC 目录下）
+project_root = os.path.dirname(os.path.dirname(current_dir))
+sys.path.append(project_root)
 import gmsh
 import jax
 jax.config.update('jax_disable_jit', True)
 
 import jax.numpy as jnp
 from functools import partial
-# 获取当前文件所在目录
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# 获取项目根目录（假设当前文件在 src/WFC 目录下）
-project_root = os.path.dirname(os.path.dirname(current_dir))
-sys.path.append(project_root)
+
 
 import tqdm.rich as tqdm
 
