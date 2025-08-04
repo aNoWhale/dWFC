@@ -71,15 +71,13 @@ if __name__ == '__main__':
     fuse_processor = BRepAlgoAPI_Fuse()
     fuse_processor.SetRunParallel(True)  # 关键优化：开启并行计算
     result_shape = None
-    result_shape = None
     pbar = tqdm.tqdm(total=4**3, desc="", unit="")
     for dx, dy, dz in shifts:
         cube = FCCZ.build([[x + dx, y + dy, z + dz] for x, y, z in base_pts])
         if result_shape is None:
             result_shape = cube
         else:
-            fuse_processor.SetArguments([cube])
-            fuse_processor.SetTools([result_shape])
+            fuse_processor(cube, result_shape)
             fuse_processor.Build()
             if not fuse_processor.IsDone():
                 print(f"Warning: Fusion failed at ({dx},{dy},{dz})")
