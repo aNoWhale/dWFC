@@ -20,7 +20,7 @@ class Cubic(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        CubeTile.write_stp(filename, result_shape)
+        # CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 class BCC(CubeTile):
@@ -38,7 +38,7 @@ class BCC(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        CubeTile.write_stp(filename, result_shape)
+        # CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 
@@ -60,7 +60,7 @@ class BCCZ(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        CubeTile.write_stp(filename, result_shape)
+        # CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 
@@ -82,7 +82,7 @@ class FCC(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        CubeTile.write_stp(filename, result_shape)
+        # CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 
@@ -104,7 +104,7 @@ class FCCZ(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        CubeTile.write_stp(filename, result_shape)
+        # CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 
@@ -118,7 +118,7 @@ class FCCZ(CubeTile):
 
 if __name__ == "__main__":
     #cube=Cube()
-    cube_points = [
+    cube_points =  np.array([
         [0, 0, 0],  # 底面左前角
         [1, 0, 0],  # 底面右前角
         [1, 0, 1],  # 顶面右前角
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         [1, 1, 0],  # 底面右后角
         [1, 1, 1],  # 顶面右后角
         [0, 1, 1]  # 顶面左后角
-    ]
+    ])
     # 生成立方体框架结构并保存为STP文件
     Cubic.build(cube_points)
     BCC.build(cube_points)
