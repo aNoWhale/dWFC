@@ -1,11 +1,3 @@
-import os
-import sys
-current_dir = os.path.dirname(os.path.abspath(__file__))
-
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-sys.path.append(project_root)
-
-
 from src.dynamicGenerator.TileImplement.Cube import *
 import numpy as np
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse
@@ -61,6 +53,7 @@ if __name__ == '__main__':
     # result_shape = BRepAlgoAPI_Fuse(rs8, result_shape).Shape()
 
 
+
     base_pts = [
         [0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1],
         [0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]
@@ -68,23 +61,24 @@ if __name__ == '__main__':
 
     shifts = itertools.product(range(4), repeat=3)  # 100×100×100 位移
 
-    fuse_processor = BRepAlgoAPI_Fuse()
-    fuse_processor.SetRunParallel(True)  # 关键优化：开启并行计算
-    result_shape = None
-    result_shape = None
+    # 用生成器+增量 fuse，避免一次性占满内存
+    result_shape = TopTools_ListOfShape()
     pbar = tqdm.tqdm(total=4**3, desc="", unit="")
+    arg_shapes = TopTools_ListOfShape()
+    fuse = BRepAlgoAPI_Fuse()
+    fuse.SetRunParallel( True)
     for dx, dy, dz in shifts:
         cube = FCCZ.build([[x + dx, y + dy, z + dz] for x, y, z in base_pts])
-        if result_shape is None:
-            result_shape = cube
+        arg_shapes.Append(cube)
+        # 2. 一次性融合
+        fuse.SetArguments(arg_shapes)  # 所有待融合对象
+        fuse.SetTools(result_shape)  # 无 tool，直接全部融合
+        fuse.Build()
+        if fuse.IsDone():
+            result_shape.Clear()
+            result_shape.Append(fuse.Shape())
         else:
-            fuse_processor.SetArguments([cube])
-            fuse_processor.SetTools([result_shape])
-            fuse_processor.Build()
-            if not fuse_processor.IsDone():
-                print(f"Warning: Fusion failed at ({dx},{dy},{dz})")
-            else:
-                result_shape = fuse_processor.Shape()
+            raise RuntimeError("Fuse failed")
         pbar.update(1)
     pbar.close()
     Cubic.write_stp('cubes.stp', result_shape)
