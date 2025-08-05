@@ -7,7 +7,7 @@ project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 import gmsh
 import jax
-jax.config.update('jax_disable_jit', True)
+# jax.config.update('jax_disable_jit', True)
 
 import jax.numpy as jnp
 from functools import partial
@@ -25,7 +25,7 @@ from scipy.sparse import csr_matrix
 from src.WFC.gumbelSoftmax import gumbel_softmax
 from src.WFC.shannonEntropy import shannon_entropy
 from src.WFC.TileHandler import TileHandler
-from src.WFC.builder import visualizer_2D
+from src.WFC.builder import visualizer_2D,Visualizer
 from src.WFC.FigureManager import FigureManager
 
 
@@ -66,7 +66,7 @@ def select_collapse(key, probs, tau=0.03):
     # 已坍缩: entropy_adj = max_entropy + 1
     max_entropy = jnp.max(entropy)
     # print(f"max entropy: {max_entropy}", )
-    entropy_adj = entropy * mask + (1 - mask) * (max_entropy + 1.0)
+    entropy_adj = entropy * mask + (1 - mask) * (max_entropy + 10.0)
 
     # 4. 转换为选择概率（最小熵对应最高概率）
     selection_logits = -entropy_adj  # 最小熵->最大logits
@@ -106,7 +106,8 @@ def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
         # print(f"compatibiliy @ p_collapsed * neighbor_prob:\n{jnp.einsum('...ij,...j->...i',compatibility, p_collapsed)} * {neighbor_prob}")
         # print(f'p_neigh: {p_neigh}')
         norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
-        return p_neigh / jnp.where(norm == 0, 1.0, norm)
+        p_neigh = p_neigh / jnp.where(norm == 0, 1.0, norm)
+        return jnp.clip(p_neigh, 0, 1)
     for neighbor,dirs in zip(neighbors,dirs_index):
         prob=update_single(probs[neighbor])
         # print(f"update neighbor {neighbor} with {prob}")
@@ -141,7 +142,8 @@ def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
     
 #     # 最终确保至少有一个有效选择
 #     return final_gumbel, total_rerolls, key
-    
+
+@partial(jax.jit, static_argnames=('tau','max_rerolls','zero_threshold','k'))   
 def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e-3):
     near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs))
     
@@ -170,6 +172,7 @@ def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e
      
     return final_gumbel, total_rerolls, key
 
+@partial(jax.jit, static_argnames=('max_rerolls','zero_threshold','k','tau'))
 def full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
                 max_rerolls, zero_threshold, k, tau):
     """执行完整的重选扫描循环"""
@@ -226,24 +229,27 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
     probs=init_probs
 
     should_stop = False
-    visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=0)
-    pbar = tqdm.tqdm(total=num_elements, desc="collpasing", unit="tiles")
+    if plot=="2d":
+        # visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=0)
+        visualizer:Visualizer=kwargs.pop("visualizer",None)
+        visualizer.add_frame(probs=probs)
+    pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles")
     while should_stop is False:
         # 选择要坍缩的单元（最小熵单元）
-        print(f"#epoch: {pbar.n}")
+        # print(f"#epoch: {pbar.n}")
         key, subkey = jax.random.split(key)
         collapse_idx,max_entropy = select_collapse(subkey, probs, tau=1e-3)
-        print(f"max entorpy: {max_entropy}")
+        # print(f"max entorpy: {max_entropy}")
         pbar.update(1)
-        if max_entropy<0.2:
+        if max_entropy<0.3:
             should_stop=True
-            print("####entropy reached stop condition####\n")
+            print(f"####entropy reached stop condition with max entropy {max_entropy}####\n")
             break
         # 获取该单元的邻居
         neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
         neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs) #邻居所在的方向
-        print(f"collapse_idx: {collapse_idx}", )
-        print(f"neighbors: {neighbors}")
+        # print(f"collapse_idx: {collapse_idx}", )
+        # print(f"neighbors: {neighbors}")
 
         # 根据邻居更新坍缩单元格的概率
         neighbors_dirs_opposite_index=[]
@@ -259,8 +265,8 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         key, subkey = jax.random.split(key)
         # p_collapsed = gumbel_softmax(subkey,probs[collapse_idx],tau=1e-3,hard=True,axis=-1,eps=1e-10)
         p_collapsed, _ , key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=1e-5, tau=1e-3,k=1000)
-        print(f"p_collapsed:{p_collapsed}")
-        probs = probs.at[collapse_idx].set(p_collapsed)
+        # print(f"p_collapsed:{p_collapsed}")
+        probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
 
         # 更新邻居的概率
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
@@ -268,22 +274,23 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
 
         if plot is not False:
             if plot == '2d':
-                visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=pbar.n)
+                # visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=pbar.n)
+                visualizer.add_frame(probs=probs)
             if plot == "3d":
                 #TODO 3D visualizer here
                 pass
         if pbar.n > pbar.total:
-            pbar.set_description_str("trying fix conflicts")
-        print(f"probs: \n{probs}",)
-        print("epoch end\n")
+            pbar.set_description_str("fixing high entropy")
+        # print(f"probs: \n{probs}",)
+        # print("epoch end\n")
         # 然后再计算香农熵选择下一个
     pbar.close()
-    return probs
+    return probs, max_entropy
 
 if __name__ == "__main__":
     from src.utiles.adjacency import build_grid_adjacency
-    height = 3
-    width = 3
+    height = 10
+    width = 10
     adj=build_grid_adjacency(height=height, width=width, connectivity=4)
 
     # from src.utiles.generateMsh import generate_cube_hex_mesh
@@ -357,9 +364,13 @@ if __name__ == "__main__":
     numTypes = tileHandler.typeNum
     init_probs = jnp.ones((num_elements ,numTypes)) / numTypes # (n_elements, n_types)
     from src.utiles.generateMsh import generate_grid_vertices_vectorized
-    figureManger=FigureManager()
+    figureManager=FigureManager(figsize=(10,10))
+    visualizer=Visualizer(tileHandler=tileHandler,points=adj['vertices'],figureManager=figureManager)
     grid= generate_grid_vertices_vectorized(width+1,height+1)
-    probs=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManger)
+    probs,max_entropy=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
+    visualizer.draw()
+    # visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManger,epoch='end')
     pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(width,height)
     name_pattern = tileHandler.pattern_to_names(pattern)
     print(f"pattern: \n{name_pattern}")
+    print(f"max entropy: {max_entropy}")

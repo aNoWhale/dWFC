@@ -7,11 +7,10 @@ class FigureManager:
     _instance = None
     fig, ax = None, None
     
-    def __new__(cls):
+    def __new__(cls,figsize=(10,5)):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls.fig, cls.ax = plt.subplots()
-            cls.ax.set_title("Managed Shared Figure")
+            cls.fig, cls.ax = plt.subplots(figsize=figsize)
         return cls._instance
     
     def get_figure_ax(self):
