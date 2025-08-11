@@ -1,4 +1,4 @@
-# Import some useful modules.
+
 import jax
 import jax.numpy as np
 import os

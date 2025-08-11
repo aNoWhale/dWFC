@@ -235,6 +235,9 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         visualizer.add_frame(probs=probs)
     pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles")
     while should_stop is False:
+        # 归一化
+        norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
+        probs = probs / jnp.where(norm == 0, 1.0, norm)
         # 选择要坍缩的单元（最小熵单元）
         # print(f"#epoch: {pbar.n}")
         key, subkey = jax.random.split(key)
