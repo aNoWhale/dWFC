@@ -1,4 +1,4 @@
-from src.mma.mmapy import *
+
 
 
 def main():

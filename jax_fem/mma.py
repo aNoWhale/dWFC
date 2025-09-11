@@ -485,6 +485,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         loop = loop + 1
 
         print(f"MMA solver...")
+        print(f"collapsing...")
+        rho = rho.reshape(-1,4,1)[...,0,0].reshape(-1,1)
+        print(f"rho.shape:{rho.shape}")
         
         if density_filtering:
             rho_physical = applyDensityFilter(ft, rho)

@@ -1,23 +1,34 @@
 # Import some useful modules.
+import sys
 import numpy as onp
 import jax
+# jax.config.update('jax_disable_jit', True)
 import jax.numpy as np
 import os
 import glob
 import matplotlib.pyplot as plt
-
+from pathlib import Path
+import meshio
+# 获取当前文件所在目录
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# 获取项目根目录（假设当前文件在 src/fem 目录下）
+project_root = os.path.dirname(os.path.dirname(current_dir))
+sys.path.append(project_root)
 # Import JAX-FEM specific modules.
 from jax_fem.problem import Problem
 from jax_fem.solver import solver, ad_wrapper
 from jax_fem.utils import save_sol
-from jax_fem.generate_mesh import get_meshio_cell_type, Mesh, rectangle_mesh
+from jax_fem.generate_mesh import get_meshio_cell_type, Mesh, rectangle_mesh, box_mesh_gmsh
 from jax_fem.mma import optimize
+
+from src.fem.SigmaInterpreter import SigmaInterpreter
+from src.WFC.TileHandler import TileHandler
 
 # Do some cleaning work. Remove old solution files.
 data_path = os.path.join(os.path.dirname(__file__), 'data')
 files = glob.glob(os.path.join(data_path, f'vtk/*'))
-for f in files:
-    os.remove(f)
+# for f in files:
+#     os.remove(f)
 
 # Define constitutive relationship.
 # Generally, JAX-FEM solves -div.(f(u_grad,alpha_1,alpha_2,...,alpha_N)) = b.
@@ -25,44 +36,46 @@ for f in files:
 # reflected by the function 'stress'. The functions 'custom_init'and 'set_params'
 # override base class methods. In particular, set_params sets the design variable theta.
 class Elasticity(Problem):
-    def custom_init(self):
+    def custom_init(self,*additional_info):
         # Override base class method.
         # Set up 'self.fe.flex_inds' so that location-specific TO can be realized.
         self.fe = self.fes[0]
         self.fe.flex_inds = np.arange(len(self.fe.cells))
+        self.sigma:SigmaInterpreter = self.additional_info[0]
 
     def get_tensor_map(self):
-        def stress(u_grad, theta):
+        def stress(u_grad, ids):
             # Plane stress assumption
             # Reference: https://en.wikipedia.org/wiki/Hooke%27s_law
-            Emax = 70.e3
-            Emin = 1e-3*Emax
-            nu = 0.3
-            penal = 3.
-            E = Emin + (Emax - Emin)*theta[0]**penal
-            epsilon = 0.5*(u_grad + u_grad.T)
-            eps11 = epsilon[0, 0]
-            eps22 = epsilon[1, 1]
-            eps12 = epsilon[0, 1]
-            sig11 = E/(1 + nu)/(1 - nu)*(eps11 + nu*eps22)
-            sig22 = E/(1 + nu)/(1 - nu)*(nu*eps11 + eps22)
-            sig12 = E/(1 + nu)*eps12
-            sigma = np.array([[sig11, sig12], [sig12, sig22]])
-            return sigma
+            # Emax = 70.e3
+            # Emin = 1e-3*Emax
+            # nu = 0.3
+            # penal = 3.
+            # E = Emin + (Emax - Emin)*theta[0]**penal
+            # epsilon = 0.5*(u_grad + u_grad.T)
+            # eps11 = epsilon[0, 0]
+            # eps22 = epsilon[1, 1]
+            # eps12 = epsilon[0, 1]
+            # sig11 = E/(1 + nu)/(1 - nu)*(eps11 + nu*eps22)
+            # sig22 = E/(1 + nu)/(1 - nu)*(nu*eps11 + eps22)
+            # sig12 = E/(1 + nu)*eps12
+            # sigma = np.array([[sig11, sig12], [sig12, sig22]])
+
+            return self.sigma(u_grad,ids,debug=True)
         return stress
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 100.])
+            return np.array([0., 0., 100.])
         return [surface_map]
 
     def set_params(self, params):
         # Override base class method.
         full_params = np.ones((self.fe.num_cells, params.shape[1]))
         full_params = full_params.at[self.fe.flex_inds].set(params)
-        thetas = np.repeat(full_params[:, None, :], self.fe.num_quads, axis=1)
+        ids = np.repeat(full_params[:, None, :], self.fe.num_quads, axis=1)
         self.full_params = full_params
-        self.internal_vars = [thetas]
+        self.internal_vars = [ids]
 
     def compute_compliance(self, sol):
         # Surface integral
@@ -79,32 +92,41 @@ class Elasticity(Problem):
         return val
 
 # Specify mesh-related information. We use first-order quadrilateral element.
-ele_type = 'QUAD4'
+ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
-Lx, Ly = 60., 30.
-meshio_mesh = rectangle_mesh(Nx=60, Ny=30, domain_x=Lx, domain_y=Ly)
+Lx, Ly, Lz = 60., 60., 60.
+Nx, Ny, Nz = 60, 60, 60
+if not os.path.exists("data/msh/box.msh"):
+    meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type)
+else:
+    meshio_mesh = meshio.read("data/msh/box.msh")
 mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
 
 # Define boundary conditions and values.
 def fixed_location(point):
-    return np.isclose(point[0], 0., atol=1e-5)
+    return np.isclose(point[2], 0., atol=1e-5)
 
 def load_location(point):
-    return np.logical_and(np.isclose(point[0], Lx, atol=1e-5), np.isclose(point[1], 0., atol=0.1*Ly + 1e-5))
+    return np.isclose(point[2], Lz, atol=1e-5)
 
 def dirichlet_val(point):
     return 0.
 
-dirichlet_bc_info = [[fixed_location]*2, [0, 1], [dirichlet_val]*2]
+dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
+tileHandler = TileHandler(typeList=['a','b','c','d'],direction=(('up',"down"),("left","right")))
+tileHandler.setConnectiability(fromTypeName='a',toTypeName="b",direction="left",value=1,dual=True)
+tileHandler.selfConnectable(typeName='c',value=1)
+
 # Define forward problem.
-problem = Elasticity(mesh, vec=2, dim=2, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns)
+problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
+                     additional_info=(SigmaInterpreter(typeList=tileHandler.typeList,debug=True),))
 
 # Apply the automatic differentiation wrapper.
 # This is a critical step that makes the problem solver differentiable.
-fwd_pred = ad_wrapper(problem, solver_options={'umfpack_solver': {}}, adjoint_solver_options={'umfpack_solver': {}})
+fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solver_options={'jax_solver': {}})
 
 # Define the objective function 'J_total(theta)'.
 # In the following, 'sol = fwd_pred(params)' basically says U = U(theta).
@@ -138,7 +160,7 @@ def objectiveHandle(rho):
     output_sol(rho, J)
     return J, dJ
 
-
+vf=0.5
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
 def consHandle(rho, epoch):
     # MMA solver requires (c, dc) as inputs
@@ -152,9 +174,10 @@ def consHandle(rho, epoch):
     return c, gradc
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-vf = 0.5
+
 optimizationParams = {'maxIters':51, 'movelimit':0.1}
-rho_ini = vf*np.ones((len(problem.fe.flex_inds), 1))
+
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum,1)).reshape(-1,1)/tileHandler.typeNum
 numConstraints = 1
 optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints)
 print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")

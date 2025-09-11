@@ -21,7 +21,7 @@ class TileHandler:
         \n:param: typeList:str|List[str] -> name of types
         """
         directionPair:Tuple[Tuple[str,str]] = kwargs.pop('direction',None)
-        self.typeList = kwargs.pop('typeList',[])
+        self.typeList = kwargs.pop('typeList',[]) # every tile type will be saved here
         self.oppositeDirection:Dict[str,str] = {}
 
         directionList=[]
@@ -126,6 +126,16 @@ class TileHandler:
 
 
     def setConnectiability(self,fromTypeName:str,toTypeName:str|List[str],direction:str|List[str]='isotropy',value=1,dual=True):
+        """_summary_
+
+        Args:
+            fromTypeName (str): _description_
+            toTypeName (str | List[str]): _description_
+            direction (str | List[str], optional): _description_. Defaults to 'isotropy'.
+            value (int, optional): _description_. Defaults to 1.
+            dual (bool, optional): example: from A to B left dual=True means A's left can connect B's right and B's right can connect A's right. 
+                                            if False, only from A to B left will be added. Defaults to True.
+        """
         #TODO 在具有方向时的,isotropy应当同时修改所有方向，
         j = self.get_index_by_name(fromTypeName)
         toTypeName = toTypeName if type(toTypeName) is list else list(toTypeName)
@@ -139,9 +149,10 @@ class TileHandler:
                 d=self.get_index_by_direction(dName)
                 self._compatibility[d,i,j]=value
                 if dual:
-                    odName = self.oppositeDirection[dName]
-                    od =self.get_index_by_direction(odName)
-                    self._compatibility[od,j,i]=value
+                    # odName = self.oppositeDirection[dName]
+                    # od =self.get_index_by_direction(odName)
+                    # self._compatibility[od,j,i]=value
+                    self._compatibility[d,j,i]=value
 
     def selfConnectable(self,typeName:str|List[str],direction:str|List[str]='isotropy',value=1):
         typeName = typeName if type(typeName) is list else list(typeName)
