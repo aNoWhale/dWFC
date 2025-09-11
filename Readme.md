@@ -1,15 +1,15 @@
 * to create conda environment with requirements
 * and the name of environment can be changed in **environment.yaml**
 ```shell
-conda env create -f environment.yaml
+conda env create -f environment.yml
 ```
 * to update conda environment
 ```shell
-conda install -f environment.yaml
+conda install -f environment.yml
 ```
 * To export conda environment
 ```shell
-conda env export --from-history > environment.yaml
+conda env export --from-history > environment.yml
 ```
 
 * to install pip requirements

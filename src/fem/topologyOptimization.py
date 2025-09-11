@@ -1,14 +1,18 @@
 # Import some useful modules.
 import sys
 import numpy as onp
-import jax
-# jax.config.update('jax_disable_jit', True)
-import jax.numpy as np
+
 import os
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
 import glob
 import matplotlib.pyplot as plt
 from pathlib import Path
 import meshio
+import jax
+import jax_smi
+jax_smi.initialise_tracking()
+# jax.config.update('jax_disable_jit', True)
+import jax.numpy as np
 # 获取当前文件所在目录
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # 获取项目根目录（假设当前文件在 src/fem 目录下）
@@ -66,7 +70,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., 100.])
+            return np.array([0., 0., -100.])
         return [surface_map]
 
     def set_params(self, params):
@@ -107,7 +111,7 @@ def fixed_location(point):
     return np.isclose(point[2], 0., atol=1e-5)
 
 def load_location(point):
-    return np.isclose(point[2], Lz, atol=1e-5)
+    return np.isclose(point[2], Lz-0.1, atol=1e-5)
 
 def dirichlet_val(point):
     return 0.
@@ -126,7 +130,7 @@ problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=di
 
 # Apply the automatic differentiation wrapper.
 # This is a critical step that makes the problem solver differentiable.
-fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solver_options={'jax_solver': {}})
+fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solver_options={'petsc_solver': {}})
 
 # Define the objective function 'J_total(theta)'.
 # In the following, 'sol = fwd_pred(params)' basically says U = U(theta).
