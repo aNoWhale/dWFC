@@ -95,9 +95,12 @@ import meshio
 #     }
 
 
-def build_hex8_adjacency_with_meshio(mesh_file):
+def build_hex8_adjacency_with_meshio(mesh:meshio.Mesh=None,mesh_file=None):
+    if mesh_file is None and mesh is None:
+        raise ValueError("need mesh")
     # 读取网格文件
-    mesh = meshio.read(mesh_file)
+    if mesh_file is not None:
+        mesh = meshio.read(mesh_file)
 
     # 提取HEX8单元
     hex_cells = None

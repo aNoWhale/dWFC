@@ -234,6 +234,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         visualizer:Visualizer=kwargs.pop("visualizer",None)
         visualizer.add_frame(probs=probs)
     pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles")
+    id_pattern=None
     while should_stop is False:
         # 归一化
         norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
@@ -288,7 +289,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         # print("epoch end\n")
         # 然后再计算香农熵选择下一个
     pbar.close()
-    return probs, max_entropy
+    return probs, max_entropy, id_pattern
 
 if __name__ == "__main__":
     from src.utiles.adjacency import build_grid_adjacency
@@ -370,7 +371,7 @@ if __name__ == "__main__":
     figureManager=FigureManager(figsize=(10,10))
     visualizer=Visualizer(tileHandler=tileHandler,points=adj['vertices'],figureManager=figureManager)
     grid= generate_grid_vertices_vectorized(width+1,height+1)
-    probs,max_entropy=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
+    probs,max_entropy, _=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
     visualizer.draw()
     # visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManger,epoch='end')
     pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(width,height)

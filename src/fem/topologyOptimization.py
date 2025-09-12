@@ -3,6 +3,8 @@ import sys
 import numpy as onp
 
 import os
+
+
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
 import glob
 import matplotlib.pyplot as plt
@@ -27,9 +29,14 @@ from jax_fem.mma import optimize
 
 from src.fem.SigmaInterpreter import SigmaInterpreter
 from src.WFC.TileHandler import TileHandler
+from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
+from src.WFC.stableWaveFunctionCollapse import waveFunctionCollapse
+
 
 # Do some cleaning work. Remove old solution files.
-data_path = os.path.join(os.path.dirname(__file__), 'data')
+# data_path = os.path.join(os.path.dirname(__file__), 'data')
+data_path ='data'
+
 files = glob.glob(os.path.join(data_path, f'vtk/*'))
 # for f in files:
 #     os.remove(f)
@@ -48,7 +55,7 @@ class Elasticity(Problem):
         self.sigma:SigmaInterpreter = self.additional_info[0]
 
     def get_tensor_map(self):
-        def stress(u_grad, ids):
+        def stress(u_grad, weights):
             # Plane stress assumption
             # Reference: https://en.wikipedia.org/wiki/Hooke%27s_law
             # Emax = 70.e3
@@ -65,21 +72,21 @@ class Elasticity(Problem):
             # sig12 = E/(1 + nu)*eps12
             # sigma = np.array([[sig11, sig12], [sig12, sig22]])
 
-            return self.sigma(u_grad,ids,debug=True)
+            return self.sigma(u_grad,weights)
         return stress
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., -100.])
+            return np.array([0., 0., -1e3])
         return [surface_map]
 
     def set_params(self, params):
         # Override base class method.
-        full_params = np.ones((self.fe.num_cells, params.shape[1]))
-        full_params = full_params.at[self.fe.flex_inds].set(params)
-        ids = np.repeat(full_params[:, None, :], self.fe.num_quads, axis=1)
+        full_params = np.ones((self.fe.num_cells, params.shape[1])) #theta的话1(cells, 1), tile(cells,tilesnum)
+        full_params = full_params.at[self.fe.flex_inds].set(params) 
+        weights = np.repeat(full_params[:, None, :], self.fe.num_quads, axis=1) #(cells, quads, tilesnum)
         self.full_params = full_params
-        self.internal_vars = [ids]
+        self.internal_vars = [weights] #[(cells,tilesnum)] theta的话(cells,1)
 
     def compute_compliance(self, sol):
         # Surface integral
@@ -98,8 +105,8 @@ class Elasticity(Problem):
 # Specify mesh-related information. We use first-order quadrilateral element.
 ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
-Lx, Ly, Lz = 60., 60., 60.
-Nx, Ny, Nz = 60, 60, 60
+Lx, Ly, Lz = 10., 10., 10.
+Nx, Ny, Nz = 10, 10, 10
 if not os.path.exists("data/msh/box.msh"):
     meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type)
 else:
@@ -108,10 +115,10 @@ mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
 
 # Define boundary conditions and values.
 def fixed_location(point):
-    return np.isclose(point[2], 0., atol=1e-5)
+    return np.isclose(point[2], 0., atol=0.1+1e-5)
 
 def load_location(point):
-    return np.isclose(point[2], Lz-0.1, atol=1e-5)
+    return np.isclose(point[2], Lz, atol=0.1+1e-5)
 
 def dirichlet_val(point):
     return 0.
@@ -120,13 +127,13 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['a','b','c','d'],direction=(('up',"down"),("left","right")))
-tileHandler.setConnectiability(fromTypeName='a',toTypeName="b",direction="left",value=1,dual=True)
-tileHandler.selfConnectable(typeName='c',value=1)
+tileHandler = TileHandler(typeList=['solid','void'],direction=(('back',"front"),("left","right"),("top","bottom")))
+tileHandler.setConnectiability(fromTypeName='solid',toTypeName="void",direction="isotropy",value=1,dual=True)
+tileHandler.selfConnectable(typeName=['solid',"void"],value=1)
 
 # Define forward problem.
 problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
-                     additional_info=(SigmaInterpreter(typeList=tileHandler.typeList,debug=True),))
+                     additional_info=(SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/C",debug=False),))
 
 # Apply the automatic differentiation wrapper.
 # This is a critical step that makes the problem solver differentiable.
@@ -177,13 +184,15 @@ def consHandle(rho, epoch):
     c, gradc = c.reshape((1,)), gradc[None, ...]
     return c, gradc
 
+adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
+wfc=lambda prob: waveFunctionCollapse(prob, adj, tileHandler)
+
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-
 optimizationParams = {'maxIters':51, 'movelimit':0.1}
-
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum,1)).reshape(-1,1)/tileHandler.typeNum
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum,1),dtype=np.float64).reshape(-1,1)/tileHandler.typeNum
+print(f"rho_ini.shape{rho_ini.shape}")
 numConstraints = 1
-optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints)
+optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
 print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")
 
 # Plot the optimization results.

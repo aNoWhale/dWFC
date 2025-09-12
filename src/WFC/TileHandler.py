@@ -138,7 +138,7 @@ class TileHandler:
         """
         #TODO 在具有方向时的,isotropy应当同时修改所有方向，
         j = self.get_index_by_name(fromTypeName)
-        toTypeName = toTypeName if type(toTypeName) is list else list(toTypeName)
+        toTypeName = toTypeName if type(toTypeName) is list else [toTypeName]
         direction = self.directionList if direction not in self.directionList else direction
         # print(f"{type(direction)}")
         direction = direction if type(direction) is list else [direction]

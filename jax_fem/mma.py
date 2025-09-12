@@ -16,7 +16,7 @@ from functools import partial
 import time
 import scipy
 from jax.experimental.sparse import BCOO
-
+from typing import Callable
 from jax import config
 config.update("jax_enable_x64", True)
 
@@ -411,7 +411,7 @@ def subsolv(m,n,epsimin,low,upp,alfa,beta,p0,q0,P,Q,a0,a,b,c,d):
     return xmma,ymma,zmma,lamma,xsimma,etamma,mumma,zetmma,smma
 
 
-def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints):
+def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum, WFC:Callable):
     """
     Performs topology optimization using the Method of Moving Asymptotes (MMA).
 
@@ -486,8 +486,14 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         print(f"MMA solver...")
         print(f"collapsing...")
-        rho = rho.reshape(-1,4,1)[...,0,0].reshape(-1,1)
-        print(f"rho.shape:{rho.shape}")
+        print(f"rho.shape: {rho.shape}")
+        prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum))
+        # prob_collapsed=rho
+        rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+        # 可能不能降采样了，需要让sigma支持加权输入
+        # rho = np.asarray(np.argmax(prob_collapsed,axis=-1),dtype=np.float64).reshape(-1,1)
+        # print(f"downsampled rho.dtype{rho.dtype}")
+        # print(f"downsampled rho.shape:{rho.shape}")
         
         if density_filtering:
             rho_physical = applyDensityFilter(ft, rho)
@@ -510,7 +516,6 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         print(f"rho_ini.shape = {rho_ini.shape}")
         print(f"rho_physical.shape = {rho_physical.shape}")
-        exit()
 
         J, dJ, vc, dvc = np.array(J), np.array(dJ), np.array(vc), np.array(dvc)
 
