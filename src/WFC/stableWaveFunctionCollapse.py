@@ -6,6 +6,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 import gmsh
+import heapq
 import jax
 # jax.config.update('jax_disable_jit', True)
 
@@ -29,7 +30,41 @@ from src.WFC.builder import visualizer_2D,Visualizer
 from src.WFC.FigureManager import FigureManager
 
 
+class EntropyHeap:
+    def __init__(self, entropies):
+        self.heap = []
+        self.entropy_map = {}
+        self.collapsed = set()
+        
+        # 只添加未坍缩单元的熵
+        for idx, entropy in enumerate(entropies):
+            self.entropy_map[idx] = entropy
+            heapq.heappush(self.heap, (entropy, idx))
+    
+    def pop_min(self):
+        """获取最小熵的未坍缩单元"""
+        while self.heap:
+            entropy, idx = heapq.heappop(self.heap)
+            if idx not in self.collapsed and jnp.isclose(entropy, self.entropy_map.get(idx, jnp.inf)):
+                return idx, entropy
+        return None, jnp.inf
+    
+    def mark_collapsed(self, idx):
+        """标记单元为已坍缩"""
+        self.collapsed.add(idx)
+        if idx in self.entropy_map:
+            del self.entropy_map[idx]
+    
+    def update(self, idx, new_entropy):
+        """更新单元的熵值"""
+        if idx in self.collapsed:
+            return
+        self.entropy_map[idx] = new_entropy
+        heapq.heappush(self.heap, (new_entropy, idx))
 
+    def is_collapsed(self, idx):
+        """检查单元是否已坍缩"""
+        return idx in self.collapsed
 
 # @jax.jit
 def get_neighbors(csr, index):
@@ -82,66 +117,65 @@ def select_collapse(key, probs, tau=0.03):
 
 @partial(jax.jit, static_argnames=())
 def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite_index, compatibility):
-    """向量化更新邻居概率"""
     def update_single(neighbor_prob,opposite_dire_index):
+        # print(f"neighbor_prob.shape:{neighbor_prob.shape}")
         p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
         # p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob) #(d,i) (i,) ->(d,i) (1,i) -> (d,i) 
 
         norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
         return p_c / jnp.where(norm == 0, 1.0, norm)
-    p=probs[collapse_id]
-    for neighbor,di,odi in zip(neighbors,dirs_index, dirs_opposite_index):
-        p=p*update_single(probs[neighbor],odi)
+    # p=probs[collapse_id]
+    # for neighbor,di,odi in zip(neighbors,dirs_index, dirs_opposite_index):
+    #     p=p*update_single(probs[neighbor],odi)
+    # norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
+    # p = p / jnp.where(norm == 0, 1.0, norm)
+    # probs=probs.at[collapse_id].set(p)
+    # return probs
+    # 确保输入是数组且至少一维
+    # neighbors = jnp.atleast_1d(jnp.asarray(neighbors))
+    # dirs_opposite_index = jnp.atleast_1d(jnp.asarray(dirs_opposite_index))
+    neighbor_probs = probs[neighbors]
+    neighbor_probs = jnp.atleast_1d(neighbor_probs)
+    opposite_indices = jnp.array(dirs_opposite_index)
+    # print(f"neighbor_probs.shape:{neighbor_probs.shape}")
+    # print(f"opposite_indices.shape:{opposite_indices.shape}")
+    batch_update = jax.vmap(update_single)
+    update_factors = batch_update(neighbor_probs, opposite_indices)
+    cumulative_factor = jnp.prod(update_factors, axis=0)
+    p = probs[collapse_id] * cumulative_factor
     norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
     p = p / jnp.where(norm == 0, 1.0, norm)
-    probs=probs.at[collapse_id].set(p)
-    return probs
+    return probs.at[collapse_id].set(p)
 
-@partial(jax.jit, static_argnames=())
-def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
-    """向量化更新邻居概率"""
-    def update_single(neighbor_prob):
-        p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
-        p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob) #(d,i) (i,) ->(d,i) (1,i) -> (d,i) 
-        # print(f"compatibiliy @ p_collapsed * neighbor_prob:\n{jnp.einsum('...ij,...j->...i',compatibility, p_collapsed)} * {neighbor_prob}")
-        # print(f'p_neigh: {p_neigh}')
+# @partial(jax.jit, static_argnames=())
+# def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
+#     def update_single(neighbor_prob):
+#         p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
+#         p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob) #(d,i) (i,) ->(d,i) (1,i) -> (d,i) 
+#         # print(f"compatibiliy @ p_collapsed * neighbor_prob:\n{jnp.einsum('...ij,...j->...i',compatibility, p_collapsed)} * {neighbor_prob}")
+#         # print(f'p_neigh: {p_neigh}')
+#         norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
+#         p_neigh = p_neigh / jnp.where(norm == 0, 1.0, norm)
+#         return jnp.clip(p_neigh, 0, 1)
+#     for neighbor,dirs in zip(neighbors,dirs_index):
+#         prob=update_single(probs[neighbor])
+#         # print(f"update neighbor {neighbor} with {prob}")
+#         probs = probs.at[neighbor].set(prob[dirs])
+#     return probs
+@jax.jit
+def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
+    # 定义向量化更新函数（包含方向选择）
+    def vectorized_update(neighbor_prob, dir_idx):
+        p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed)
+        p_neigh = jnp.einsum("...i,...i->...i", p_neigh, neighbor_prob)
         norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
         p_neigh = p_neigh / jnp.where(norm == 0, 1.0, norm)
-        return jnp.clip(p_neigh, 0, 1)
-    for neighbor,dirs in zip(neighbors,dirs_index):
-        prob=update_single(probs[neighbor])
-        # print(f"update neighbor {neighbor} with {prob}")
-        probs = probs.at[neighbor].set(prob[dirs])
-    return probs
-
-# def collapse(subkey,probs,max_rerolls=3,zero_threshold=1e-5,k=1000.0,tau=1e-3):
-#     near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs)) #大于threshold ~=0， 小于threshold ~= 1
-#     # 声明空间
-#     gumbel_output = probs * 0  # 初始化为全零
-    
-#     def body_fn(state, i):
-#         reroll_count, gumbel, subkey = state
-#         # 当前步骤的Gumbel采样
-#         current_gumbel = gumbel_softmax(subkey,probs,tau=tau,hard=True,axis=-1,eps=1e-10) # 输出(0...,1,...,0)
-#         # 检测是否选择了接近零的项
-#         chosen_near_zero = jnp.sum(current_gumbel * near_zero_mask) # 如果选择到了接近零项， sum ~= 1
-#         should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5)) # 以0.5为分界，大于0.5 ~=1， 小于0.5 ~=0
-        
-#         # 重新选择逻辑：混合新旧采样
-#         new_gumbel = (
-#             (1 - should_reroll) * current_gumbel + 
-#             should_reroll * gumbel
-#         ) # no reroll ~= current, reroll ~= gumbel
-#         new_gumbel = new_gumbel/jnp.sum(new_gumbel,axis=-1,keepdims=False)
-#         # 更新状态
-#         new_reroll = reroll_count + should_reroll
-#         key, sub_key = jax.random.split(subkey)
-#         return (new_reroll, new_gumbel, key), None
-#     initial_state = (jnp.array(0.0), gumbel_output, subkey) # status, inputs
-#     (total_rerolls, final_gumbel, key), _ = jax.lax.scan( body_fn, initial_state, jnp.arange(max_rerolls) ) # 
-    
-#     # 最终确保至少有一个有效选择
-#     return final_gumbel, total_rerolls, key
+        return jnp.clip(p_neigh[dir_idx], 0, 1)
+    # print(f"probs[neighbors].shape:{probs[neighbors].shape}")
+    dirs_index=jnp.array(dirs_index)
+    # print(f"dirx_index.shape:{dirs_index.shape}")
+    updated_probs = jax.vmap(vectorized_update)(probs[neighbors], dirs_index)
+    return probs.at[neighbors].set(updated_probs)
 
 @partial(jax.jit, static_argnames=('tau','max_rerolls','zero_threshold','k'))   
 def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e-3):
@@ -227,6 +261,8 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
 
     # 初始化概率分布
     probs=init_probs
+    initial_entropies = shannon_entropy(probs, axis=-1)
+    # entropy_heap = EntropyHeap(initial_entropies)
 
     should_stop = False
     if plot=="2d":
@@ -243,13 +279,17 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         # print(f"#epoch: {pbar.n}")
         key, subkey = jax.random.split(key)
         collapse_idx,max_entropy = select_collapse(subkey, probs, tau=1e-3)
+        # collapse_idx, min_entropy = entropy_heap.pop_min()
         # print(f"max entorpy: {max_entropy}")
-        pbar.update(1)
-        if max_entropy<0.3:
-            should_stop=True
+        # if collapse_idx is None or min_entropy < 0.3: #本来是max_entropy
+            # print(f"####entropy reached stop condition with min entropy {min_entropy}####\n")
+        if max_entropy < 0.3: #本来是max_entropy
             print(f"####entropy reached stop condition with max entropy {max_entropy}####\n")
+            should_stop=True
             break
+        # entropy_heap.mark_collapsed(collapse_idx)
         # 获取该单元的邻居
+        pbar.update(1)
         neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
         neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs) #邻居所在的方向
         # print(f"collapse_idx: {collapse_idx}", )
@@ -275,6 +315,18 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         # 更新邻居的概率
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
         # print(f"updated neighbors: \n{probs}")
+        # 更新受影响单元的熵（只更新未坍缩单元）
+
+        # affected_indices = jnp.concatenate([
+        #     jnp.array([collapse_idx], dtype=jnp.int32), 
+        #     neighbors
+        # ])
+        # new_entropies = shannon_entropy(probs, axis=-1)
+        # for idx in affected_indices:
+        #     # 确保索引是 Python 整数（JAX 数组元素需要转换）
+        #     idx_int = int(idx)
+        #     if not entropy_heap.is_collapsed(idx_int):
+        #         entropy_heap.update(idx_int, new_entropies[idx_int])
 
         if plot is not False:
             if plot == '2d':

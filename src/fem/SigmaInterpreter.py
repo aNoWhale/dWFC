@@ -96,7 +96,8 @@ class SigmaInterpreter:
                 
                 return sigma
             # jax.debug.print("weight: {a}", a=weights)
-            return stress_anisotropic(np.einsum("n,nij->ij",weights,self.C),u_grad)
+            penalty=3
+            return stress_anisotropic(np.einsum("n,nij->ij",weights**penalty,self.C),u_grad)
 
 
     def _buildCDict(self):

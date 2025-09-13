@@ -171,7 +171,7 @@ def objectiveHandle(rho):
     output_sol(rho, J)
     return J, dJ
 
-vf=0.5
+vf=1
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
 def consHandle(rho, epoch):
     # MMA solver requires (c, dc) as inputs
@@ -189,7 +189,7 @@ wfc=lambda prob: waveFunctionCollapse(prob, adj, tileHandler)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
 optimizationParams = {'maxIters':51, 'movelimit':0.1}
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum,1),dtype=np.float64).reshape(-1,1)/tileHandler.typeNum
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
 print(f"rho_ini.shape{rho_ini.shape}")
 numConstraints = 1
 optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)

@@ -56,8 +56,8 @@ def compute_filter_kd_tree(fe):
     return H, Hs
 
 def applySensitivityFilter(ft, rho, dJ, dvc):
-    dJ = ft['H'] @ (rho*dJ/np.maximum(1e-3, rho)/ft['Hs'][:, None])
-    dvc = ft['H'][None, :, :] @ (rho[None, :, :]*dvc/np.maximum(1e-3, rho[None, :, :])/ft['Hs'][None, :, None])
+    dJ = ft['H'] @ (rho*dJ/np.maximum(1e-3, rho)/ft['Hs'][:, None]) # (n, n) @ [(n,1) * (n,1)/(1,)/(1, 1) ]-> (n,n)@(n, 1)->(n, 1)
+    dvc = ft['H'][None, :, :] @ (rho[None, :, :]*dvc/np.maximum(1e-3, rho[None, :, :])/ft['Hs'][None, :, None]) # (1, n, n)@(1, n, 1) -> (1, n, 1)
     return dJ, dvc
 
 def applyDensityFilter(ft, rho):
