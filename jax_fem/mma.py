@@ -421,7 +421,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         Finite element object.
     rho_ini : NumpyArray
         Initial density distribution.
-        Shape is (num_rho_vars, 1).
+        Shape is (num_rho_vars, n).
     optimizationParams : dict
         Dictionary containing optimization parameters:
 

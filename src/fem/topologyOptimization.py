@@ -14,6 +14,8 @@ import jax
 import jax_smi
 jax_smi.initialise_tracking()
 # jax.config.update('jax_disable_jit', True)
+# jax.config.update("jax_enable_x64", True)
+
 import jax.numpy as np
 # 获取当前文件所在目录
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -82,11 +84,15 @@ class Elasticity(Problem):
 
     def set_params(self, params):
         # Override base class method.
-        full_params = np.ones((self.fe.num_cells, params.shape[1])) #theta的话1(cells, 1), tile(cells,tilesnum)
-        full_params = full_params.at[self.fe.flex_inds].set(params) 
-        weights = np.repeat(full_params[:, None, :], self.fe.num_quads, axis=1) #(cells, quads, tilesnum)
-        self.full_params = full_params
-        self.internal_vars = [weights] #[(cells,tilesnum)] theta的话(cells,1)
+        # full_params = np.ones((self.fe.num_cells, params.shape[1])) #theta的话1(cells, 1), tile(cells,tilesnum)
+        # full_params = full_params.at[self.fe.flex_inds].set(params) 
+        # weights = np.repeat(full_params[:, None, :], self.fe.num_quads, axis=1) #(cells, quads, tilesnum)
+        # self.full_params = full_params
+        # self.internal_vars = [weights] #[(cells,tilesnum)] theta的话(cells,1)
+
+        weights = np.ones((self.fe.num_cells, self.fe.num_quads, params.shape[1]))
+        weights = weights.at[self.fe.flex_inds].set(np.repeat(params[:, None, :], self.fe.num_quads, axis=1))
+        self.internal_vars = [weights]
 
     def compute_compliance(self, sol):
         # Surface integral
@@ -145,17 +151,18 @@ def J_total(params):
     # J(u(theta), theta)
     sol_list = fwd_pred(params)
     compliance = problem.compute_compliance(sol_list[0])
-    return compliance
+    return compliance, sol_list
 
 
 # Output solution files to local disk
 outputs = []
-def output_sol(params, obj_val):
-    print(f"\nOutput solution - need to solve the forward problem again...")
-    sol_list = fwd_pred(params)
+def output_sol(params, obj_val,sol_list):
+    print(f"\nOutput solution - params.shape:{params.shape}")
+    # sol_list = fwd_pred(params)
+
     sol = sol_list[0]
     vtu_path = os.path.join(data_path, f'vtk/sol_{output_sol.counter:03d}.vtu')
-    save_sol(problem.fe, np.hstack((sol, np.zeros((len(sol), 1)))), vtu_path, cell_infos=[('theta', problem.full_params[:, 0])])
+    save_sol(problem.fe, np.hstack((sol, np.zeros((len(sol), 1)))), vtu_path, cell_infos=[(f'theta{i}', params[:, i]) for i in range(params.shape[-1])])
     print(f"compliance = {obj_val}")
     outputs.append(obj_val)
     output_sol.counter += 1
@@ -167,8 +174,8 @@ def objectiveHandle(rho):
     # MMA solver requires (J, dJ) as inputs
     # J has shape ()
     # dJ has shape (...) = rho.shape
-    J, dJ = jax.value_and_grad(J_total)(rho)
-    output_sol(rho, J)
+    (J, sol), dJ = jax.value_and_grad(J_total,has_aux=True)(rho)
+    output_sol(rho, J, sol)
     return J, dJ
 
 vf=1
