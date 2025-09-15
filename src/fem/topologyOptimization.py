@@ -89,7 +89,6 @@ class Elasticity(Problem):
         # weights = np.repeat(full_params[:, None, :], self.fe.num_quads, axis=1) #(cells, quads, tilesnum)
         # self.full_params = full_params
         # self.internal_vars = [weights] #[(cells,tilesnum)] theta的话(cells,1)
-
         weights = np.ones((self.fe.num_cells, self.fe.num_quads, params.shape[1]))
         weights = weights.at[self.fe.flex_inds].set(np.repeat(params[:, None, :], self.fe.num_quads, axis=1))
         self.internal_vars = [weights]
@@ -133,9 +132,10 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['solid','void'],direction=(('back',"front"),("left","right"),("top","bottom")))
-tileHandler.setConnectiability(fromTypeName='solid',toTypeName="void",direction="isotropy",value=1,dual=True)
-tileHandler.selfConnectable(typeName=['solid',"void"],value=1)
+tileHandler = TileHandler(typeList=['solid','void','weird'], direction=(('back',"front"),("left","right"),("top","bottom")))
+tileHandler.setConnectiability(fromTypeName='solid',toTypeName=["void","weird"],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='void', toTypeName="weird", direction="isotropy",value=1,dual=True)
+tileHandler.selfConnectable(typeName=['solid',"void","weird"],value=1)
 
 # Define forward problem.
 problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,

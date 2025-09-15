@@ -261,7 +261,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
 
     # 初始化概率分布
     probs=init_probs
-    initial_entropies = shannon_entropy(probs, axis=-1)
+    # initial_entropies = shannon_entropy(probs, axis=-1)
     # entropy_heap = EntropyHeap(initial_entropies)
 
     should_stop = False
