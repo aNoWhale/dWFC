@@ -4,7 +4,7 @@ from src.WFC.FigureManager import FigureManager
 from src.WFC.TileHandler import TileHandler
 import tqdm
 
-def visualizer_2D(tileHandler:TileHandler,probs:np.array,points:np.array,figureManager:FigureManager=None,epoch=0):
+def visualizer_2D(tileHandler:TileHandler,probs:np.array,points:np.array,figureManager:FigureManager=None,epoch=0,prefix:str=""):
     assert figureManager is not None
     fig,ax=figureManager.get_figure_ax()
     # print(f"{__name__}")
@@ -22,7 +22,7 @@ def visualizer_2D(tileHandler:TileHandler,probs:np.array,points:np.array,figureM
                         [line[0][1],line[1][1]],
                         linewidth=10,color=color,alpha=probs[i,j])
     ax.set_title(f"epoch:{epoch}")
-    figureManager.save(f'data/img/{epoch}.jpg')
+    figureManager.save(f'data/img/{prefix}{epoch}.jpg')
     ax.cla()
 
 class Visualizer:
@@ -35,6 +35,6 @@ class Visualizer:
     def add_frame(self,probs):
         self.probs.append(probs)
 
-    def draw(self):
+    def draw(self,prefix:str=""):
         for i,prob in tqdm.tqdm(enumerate(self.probs),desc="ploting",total=len(self.probs)):
-            visualizer_2D(tileHandler=self.tileHandler,probs=prob,points=self.points,figureManager=self.figureManager,epoch=i)
+            visualizer_2D(tileHandler=self.tileHandler,probs=prob,points=self.points,figureManager=self.figureManager,epoch=i,prefix=prefix)

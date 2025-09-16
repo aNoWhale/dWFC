@@ -456,6 +456,14 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     TODO: Scale objective function value to be always within 1-100
     (`ref <https://doi.org/10.1016/j.compstruc.2018.01.008>`_).
     """
+    # stop condition
+    tol_obj = optimizationParams.get('tol_obj', 1e-4)
+    tol_design = optimizationParams.get('tol_design', 1e-3)
+    tol_con = optimizationParams.get('tol_con', 1e-3)
+    tol_grad = optimizationParams.get('tol_grad', 1e-4)
+    min_iters = optimizationParams.get('min_iters', 10)
+    J_prev = np.inf
+    rho_prev = rho_ini.copy()
 
     H, Hs = compute_filter_kd_tree(fe)
     ft = {'H':H, 'Hs':Hs}
@@ -537,8 +545,30 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         time_elapsed = end - start
 
-        print(f"MMA took {time_elapsed} [s]")
+        print(f"\n****************\nMMA took {time_elapsed} [s]")
 
-        print(f'Iter {loop:d}; J {J:.5f}; constraint {vc}\n\n\n')
+        print(f'Iter {loop:d}; J {J:.5f}; \nconstraint \n{vc}\n\n\n')
+        if loop > min_iters:
+            # 目标函数变化
+            obj_change = abs(J_prev - J)
+            
+            # 设计变量变化
+            design_change = np.linalg.norm(rho - rho_prev)
+            
+            # 约束满足度
+            con_violation = np.max(vc)
+            
+            # 梯度范数
+            grad_norm = np.linalg.norm(dJ)
+            
+            # 复合停止条件
+            if obj_change < max(1e-6, tol_obj*abs(J_prev)) and \
+               (design_change < tol_design) and \
+               (con_violation <= tol_con) and \
+               (grad_norm < tol_grad):
+                print(f"收敛于迭代 {loop}")
+                break
+        J_prev = J
+        rho_prev = rho.copy()
 
     return rho

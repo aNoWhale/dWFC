@@ -15,7 +15,7 @@ import jax_smi
 jax_smi.initialise_tracking()
 # jax.config.update('jax_disable_jit', True)
 # jax.config.update("jax_enable_x64", True)
-
+from functools import partial
 import jax.numpy as np
 # 获取当前文件所在目录
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -178,17 +178,26 @@ def objectiveHandle(rho):
     output_sol(rho, J, sol)
     return J, dJ
 
-vf=1
+vf0=0.3
+vf1=0.3
+
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
+numConstraints = 2
 def consHandle(rho, epoch):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
     # dc should have shape (numConstraints, ...)
     def computeGlobalVolumeConstraint(rho):
-        g = np.mean(rho)/vf - 1.
+        g = np.mean(rho)/vf1 - 1.
         return g
-    c, gradc = jax.value_and_grad(computeGlobalVolumeConstraint)(rho)
-    c, gradc = c.reshape((1,)), gradc[None, ...]
+    c0, gradc0 = jax.value_and_grad(lambda rho: np.mean(rho[...,0])/vf0 - 1.)(rho)
+    c1, gradc1 = jax.value_and_grad(lambda rho: np.mean(rho[...,1])/vf1 - 1.)(rho)
+
+    c=np.array([c0,c1])
+    gradc=np.array([gradc0,gradc1])
+    print(f"c.shape:{c.shape}")
+    print(f"gradc.shape:{gradc.shape}")
+    c = c.reshape((-1,))
     return c, gradc
 
 adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
@@ -198,7 +207,6 @@ wfc=lambda prob: waveFunctionCollapse(prob, adj, tileHandler)
 optimizationParams = {'maxIters':51, 'movelimit':0.1}
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
 print(f"rho_ini.shape{rho_ini.shape}")
-numConstraints = 1
 optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
 print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")
 

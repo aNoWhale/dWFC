@@ -133,7 +133,7 @@ class TileHandler:
             toTypeName (str | List[str]): _description_
             direction (str | List[str], optional): _description_. Defaults to 'isotropy'.
             value (int, optional): _description_. Defaults to 1.
-            dual (bool, optional): example: from A to B left dual=True means A's left can connect B's right and B's right can connect A's right. 
+            dual (bool, optional): example: from A to B left dual=True means A's left can connect B's right and B's right can connect A's left. 
                                             if False, only from A to B left will be added. Defaults to True.
         """
         #TODO 在具有方向时的,isotropy应当同时修改所有方向，
@@ -149,10 +149,10 @@ class TileHandler:
                 d=self.get_index_by_direction(dName)
                 self._compatibility[d,i,j]=value
                 if dual:
-                    # odName = self.oppositeDirection[dName]
-                    # od =self.get_index_by_direction(odName)
-                    # self._compatibility[od,j,i]=value
-                    self._compatibility[d,j,i]=value
+                    odName = self.oppositeDirection[dName]
+                    od =self.get_index_by_direction(odName)
+                    self._compatibility[od,j,i]=value
+                    # self._compatibility[d,j,i]=value
 
     def selfConnectable(self,typeName:str|List[str],direction:str|List[str]='isotropy',value=1):
         typeName = typeName if type(typeName) is list else list(typeName)

@@ -6,7 +6,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 import gmsh
-import heapq
 import jax
 # jax.config.update('jax_disable_jit', True)
 
@@ -29,42 +28,10 @@ from src.WFC.TileHandler import TileHandler
 from src.WFC.builder import visualizer_2D,Visualizer
 from src.WFC.FigureManager import FigureManager
 
+"""
+以概率云的形式，不进行one-hot，选中的tile赋予更高的概率，参考SIMP构建compound elasticity tensor。
+"""
 
-class EntropyHeap:
-    def __init__(self, entropies):
-        self.heap = []
-        self.entropy_map = {}
-        self.collapsed = set()
-        
-        # 只添加未坍缩单元的熵
-        for idx, entropy in enumerate(entropies):
-            self.entropy_map[idx] = entropy
-            heapq.heappush(self.heap, (entropy, idx))
-    
-    def pop_min(self):
-        """获取最小熵的未坍缩单元"""
-        while self.heap:
-            entropy, idx = heapq.heappop(self.heap)
-            if idx not in self.collapsed and jnp.isclose(entropy, self.entropy_map.get(idx, jnp.inf)):
-                return idx, entropy
-        return None, jnp.inf
-    
-    def mark_collapsed(self, idx):
-        """标记单元为已坍缩"""
-        self.collapsed.add(idx)
-        if idx in self.entropy_map:
-            del self.entropy_map[idx]
-    
-    def update(self, idx, new_entropy):
-        """更新单元的熵值"""
-        if idx in self.collapsed:
-            return
-        self.entropy_map[idx] = new_entropy
-        heapq.heappush(self.heap, (new_entropy, idx))
-
-    def is_collapsed(self, idx):
-        """检查单元是否已坍缩"""
-        return idx in self.collapsed
 
 # @jax.jit
 def get_neighbors(csr, index):
@@ -131,6 +98,9 @@ def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite
     # p = p / jnp.where(norm == 0, 1.0, norm)
     # probs=probs.at[collapse_id].set(p)
     # return probs
+    # 确保输入是数组且至少一维
+    # neighbors = jnp.atleast_1d(jnp.asarray(neighbors))
+    # dirs_opposite_index = jnp.atleast_1d(jnp.asarray(dirs_opposite_index))
     neighbor_probs = probs[neighbors]
     neighbor_probs = jnp.atleast_1d(neighbor_probs)
     opposite_indices = jnp.array(dirs_opposite_index)
@@ -159,7 +129,6 @@ def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite
 #         # print(f"update neighbor {neighbor} with {prob}")
 #         probs = probs.at[neighbor].set(prob[dirs])
 #     return probs
-
 @jax.jit
 def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
     # 定义向量化更新函数（包含方向选择）
@@ -179,7 +148,7 @@ def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
 def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e-3):
     near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs))
     
-    # 初始化为有效采样（避免全零问题）
+    # 初始化为有效采样（避免异常选择）（存在非零概率但是选择到了零概率）
     initial_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
     key, subkey = jax.random.split(subkey)
     
@@ -187,7 +156,7 @@ def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e
     chosen_near_zero = jnp.sum(initial_gumbel * near_zero_mask)
     should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
     
-    # 收敛阈值：当重选概率<0.01时视为稳定
+    # 当重选概率<0.01时视为稳定
     CONVERGENCE_THRESHOLD = 0.01
     
     # 使用cond实现提前终止
@@ -259,7 +228,8 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
 
     # 初始化概率分布
     probs=init_probs
-
+    # initial_entropies = shannon_entropy(probs, axis=-1)
+    # entropy_heap = EntropyHeap(initial_entropies)
 
     should_stop = False
     if plot=="2d":
@@ -280,7 +250,8 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         # print(f"max entorpy: {max_entropy}")
         # if collapse_idx is None or min_entropy < 0.3: #本来是max_entropy
             # print(f"####entropy reached stop condition with min entropy {min_entropy}####\n")
-        if max_entropy < 0.3: 
+        print(f"max entropy:{max_entropy}")
+        if max_entropy < 2.3: #本来是max_entropy
             print(f"####entropy reached stop condition with max entropy {max_entropy}####\n")
             should_stop=True
             break
@@ -304,15 +275,26 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         
         # 坍缩选定的单元
         key, subkey = jax.random.split(key)
-
-        p_collapsed, _ , key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=1e-5, tau=1e-3,k=1000)
+        # p_collapsed = gumbel_softmax(subkey,probs[collapse_idx],tau=1e-3,hard=True,axis=-1,eps=1e-10)
+        p_collapsed, _ , key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=1e-5, tau=1,k=1000)
         # print(f"p_collapsed:{p_collapsed}")
         probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
 
         # 更新邻居的概率
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
         # print(f"updated neighbors: \n{probs}")
+        # 更新受影响单元的熵（只更新未坍缩单元）
 
+        # affected_indices = jnp.concatenate([
+        #     jnp.array([collapse_idx], dtype=jnp.int32), 
+        #     neighbors
+        # ])
+        # new_entropies = shannon_entropy(probs, axis=-1)
+        # for idx in affected_indices:
+        #     # 确保索引是 Python 整数（JAX 数组元素需要转换）
+        #     idx_int = int(idx)
+        #     if not entropy_heap.is_collapsed(idx_int):
+        #         entropy_heap.update(idx_int, new_entropies[idx_int])
 
         if plot is not False:
             if plot == '2d':
@@ -410,8 +392,8 @@ if __name__ == "__main__":
     visualizer=Visualizer(tileHandler=tileHandler,points=adj['vertices'],figureManager=figureManager)
     grid= generate_grid_vertices_vectorized(width+1,height+1)
     probs,max_entropy, _=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
-    visualizer.draw()
-    visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManger,epoch='end')
+    visualizer.draw(prefix="c_")
+    # visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManager,epoch='end')
     pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(width,height)
     name_pattern = tileHandler.pattern_to_names(pattern)
     print(f"pattern: \n{name_pattern}")
