@@ -178,8 +178,8 @@ def objectiveHandle(rho):
     output_sol(rho, J, sol)
     return J, dJ
 
-vf0=0.3
-vf1=0.3
+vf0=0.35
+vf1=0.35
 
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
 numConstraints = 2
@@ -207,7 +207,7 @@ wfc=lambda prob: waveFunctionCollapse(prob, adj, tileHandler)
 optimizationParams = {'maxIters':51, 'movelimit':0.1}
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
 print(f"rho_ini.shape{rho_ini.shape}")
-optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
+rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
 print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")
 
 # Plot the optimization results.

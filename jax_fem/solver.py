@@ -83,7 +83,7 @@ def petsc_solve(A, b, ksp_type, pc_type):
     err = np.linalg.norm(y.getArray() - rhs.getArray())
     logger.debug(f"PETSc Solver - Finished solving, linear solve res = {err}")
     assert err < 0.1, f"PETSc linear solver failed to converge, err = {err}"
-
+    UserWarning("err has been set from 0.1 to 0.2")
     return x.getArray()
 
 

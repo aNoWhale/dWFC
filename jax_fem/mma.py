@@ -571,4 +571,4 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         J_prev = J
         rho_prev = rho.copy()
 
-    return rho
+    return rho,J_list
