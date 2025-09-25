@@ -411,7 +411,7 @@ if __name__ == "__main__":
     grid= generate_grid_vertices_vectorized(width+1,height+1)
     probs,max_entropy, _=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
     visualizer.draw()
-    visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManger,epoch='end')
+    visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManager,epoch='end')
     pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(width,height)
     name_pattern = tileHandler.pattern_to_names(pattern)
     print(f"pattern: \n{name_pattern}")
