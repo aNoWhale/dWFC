@@ -1,7 +1,7 @@
 import gmsh
 
 
-def generate_mesh_from_stp(stp_file_path, output_mesh_file='data/msh/output.msh', mesh_size=1.0, range=1.0,gui=False):
+def generate_mesh_from_stp(stp_file_path, output_mesh_file='data/stl/output.stl', mesh_size=1.0, range=1.0,gui=False):
     """
     generate mesh from stp
     参数:
