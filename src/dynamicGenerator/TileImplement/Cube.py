@@ -10,7 +10,7 @@ class Cubic(CubeTile):
     @classmethod
     def build(cls, points, *args, **kwargs):
         filename = "Cubic.stp"
-        pts = points[:]
+        pts = points.tolist()
         # 12 条边（顶点索引）
         edges = [
             (0, 1), (1, 2), (2, 3), (3, 0),
@@ -20,7 +20,7 @@ class Cubic(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        # CubeTile.write_stp(filename, result_shape)
+        CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 class BCC(CubeTile):
@@ -31,14 +31,14 @@ class BCC(CubeTile):
     @classmethod
     def build(cls, points, *args, **kwargs):
         filename = "BCC.stp"
-        pts = points[:]
+        pts = points.tolist()
         bc = np.mean(pts, axis=0).tolist()
         pts.append(bc) #[8]: 体心坐标
         edges = [(i, 8) for i in range(8)] # 将所有顶点与体心连接
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        # CubeTile.write_stp(filename, result_shape)
+        CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 
@@ -52,7 +52,7 @@ class BCCZ(CubeTile):
     @classmethod
     def build(cls, points, *args, **kwargs):
         filename = "BCCZ.stp"
-        pts = points[:]
+        pts = points.tolist()
         bc = np.mean(pts, axis=0).tolist()
         pts.append(bc)  # [8]: 体心坐标
         edges = [(i, 8) for i in range(8)]  # 将所有顶点与体心连接
@@ -60,7 +60,7 @@ class BCCZ(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        # CubeTile.write_stp(filename, result_shape)
+        CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 
@@ -72,7 +72,7 @@ class FCC(CubeTile):
     @classmethod
     def build(cls, points, *args, **kwargs):
         filename = "FCC.stp"
-        pts = points[:]
+        pts = points.tolist()
         # 12 条边（顶点索引）
         edges = [
             (0, 2), (1, 3), (1, 4), (0, 5),
@@ -82,7 +82,7 @@ class FCC(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        # CubeTile.write_stp(filename, result_shape)
+        CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 
@@ -94,7 +94,7 @@ class FCCZ(CubeTile):
     @classmethod
     def build(cls, points, *args, **kwargs):
         filename = "FCCZ.stp"
-        pts = points[:]
+        pts = points.tolist()
         edges = [
             (0, 2), (1, 3), (1, 4), (0, 5),
             (4, 6), (5, 7), (2, 7), (3, 6),

@@ -71,12 +71,12 @@ if __name__ == '__main__':
         [0, 1, 0], [1, 1, 0], [1, 1, 1], [0, 1, 1]
     ]
 
-    shifts = itertools.product(range(4), repeat=3)  # 100×100×100 位移
+    shifts = itertools.product(range(2), repeat=3)  # 100×100×100 位移
 
 
     # 用生成器+增量 fuse，避免一次性占满内存
     fuse = BRepAlgoAPI_Fuse()
-    fuse.SetRunParallel(True)  # 开启并行计算
+    fuse.SetRunParallel(False)  # 开启并行计算
     fuse.SetNonDestructive(True)  # 非破坏性模式
     fuse.SetGlue(BOPAlgo_GlueOff) # 粘合
 
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     builder.SetRunParallel(True)
     # 初始化结果形状
     result_shape = None
-    shifts = [(dx, dy, dz) for dx in range(4) for dy in range(4) for dz in range(4)]
+    shifts = [(dx, dy, dz) for dx in range(2) for dy in range(2) for dz in range(2)]
 
     # 创建可复用的列表对象
     args_list = TopTools_ListOfShape()

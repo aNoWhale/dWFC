@@ -26,7 +26,7 @@ class CubeTile(Tile):
       Returns:
           result_shape
     """
-    RADIUS = 0.03
+    RADIUS = 0.1
     @property
     def properties(self):
         return {"strength": 10000,
@@ -41,7 +41,7 @@ class CubeTile(Tile):
         :return:
         根据points和edges生成圆柱杆
         """
-        pts = [gp_Pnt(x, y, z) for x, y, z in points]
+        pts = [gp_Pnt(float(x), float(y), float(z)) for x, y, z in points]
         RADIUS = radius
         result_shape = None
         for i, j in edges:
@@ -74,7 +74,7 @@ class CubeTile(Tile):
         :return:
         根据points和radius添加顶点球体
         """
-        pts = [gp_Pnt(x, y, z) for x, y, z in points]
+        pts = [gp_Pnt(float(x), float(y), float(z)) for x, y, z in points]
         RADIUS = radius * 1  #可调球半径
         for p in pts:
             sphere = BRepPrimAPI_MakeSphere(p, RADIUS).Shape()
