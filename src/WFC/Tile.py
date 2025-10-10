@@ -35,7 +35,7 @@ class Tile(ABC):
     @abstractmethod
     def properties(self):
         """
-        获取tile的属性。
+        获取tile的属性。已弃用
         :return: tile属性的dict
         """
         pass

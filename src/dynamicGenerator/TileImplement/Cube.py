@@ -1,5 +1,6 @@
 from src.dynamicGenerator.TileImplement.CubeTile import CubeTile
 import numpy as np
+from typing import List
 
 
 class Cubic(CubeTile):
@@ -20,7 +21,7 @@ class Cubic(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        CubeTile.write_stp(filename, result_shape)
+        # CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 class BCC(CubeTile):
@@ -31,14 +32,14 @@ class BCC(CubeTile):
     @classmethod
     def build(cls, points, *args, **kwargs):
         filename = "BCC.stp"
-        pts = points.tolist()
+        pts = points
         bc = np.mean(pts, axis=0).tolist()
         pts.append(bc) #[8]: 体心坐标
         edges = [(i, 8) for i in range(8)] # 将所有顶点与体心连接
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        CubeTile.write_stp(filename, result_shape)
+        # CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 
@@ -70,9 +71,9 @@ class FCC(CubeTile):
     面心立方
     """
     @classmethod
-    def build(cls, points, *args, **kwargs):
+    def build(cls, points:List, *args, **kwargs):
         filename = "FCC.stp"
-        pts = points.tolist()
+        pts = points
         # 12 条边（顶点索引）
         edges = [
             (0, 2), (1, 3), (1, 4), (0, 5),
@@ -82,7 +83,7 @@ class FCC(CubeTile):
         RADIUS = CubeTile.RADIUS
         result_shape = CubeTile.build_cylinder(pts, edges, RADIUS)
         result_shape = CubeTile.add_sphere(pts, RADIUS, result_shape)
-        CubeTile.write_stp(filename, result_shape)
+        # CubeTile.write_stp(filename, result_shape)
         return result_shape
 
 

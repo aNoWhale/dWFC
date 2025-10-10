@@ -1,0 +1,121 @@
+from OCC.Core.Bnd import Bnd_Box
+from OCC.Core.gp import gp_Trsf, gp_Vec, gp_Pnt
+from OCC.Extend.DataExchange import read_step_file
+from OCC.Core.TopoDS import TopoDS_Shape
+from OCC.Display.SimpleGui import init_display
+import numpy as np
+
+def get_bounding_box(shape: TopoDS_Shape) -> tuple:
+    """获取几何体的包围盒参数"""
+    bbox = Bnd_Box()
+    shape.BoundingBox(bbox)
+    
+    # 获取包围盒的最小和最大点
+    x_min, y_min, z_min, x_max, y_max, z_max = bbox.Get()
+    
+    # 计算中心点
+    center_x = (x_min + x_max) / 2
+    center_y = (y_min + y_max) / 2
+    center_z = (z_min + z_max) / 2
+    
+    # 计算尺寸
+    size_x = x_max - x_min
+    size_y = y_max - y_min
+    size_z = z_max - z_min
+    
+    return (x_min, y_min, z_min, x_max, y_max, z_max,
+            center_x, center_y, center_z,
+            size_x, size_y, size_z)
+
+def transform_shape_to_bounding_box(shape: TopoDS_Shape, target_bbox: tuple) -> TopoDS_Shape:
+    """
+    将几何体变换到目标包围盒中
+    
+    参数:
+        shape: 输入的几何体
+        target_bbox: 目标包围盒，格式为(x_min, y_min, z_min, x_max, y_max, z_max)
+    
+    返回:
+        变换后的几何体
+    """
+    # 获取原始几何体的包围盒信息
+    (x_min, y_min, z_min, x_max, y_max, z_max,
+     center_x, center_y, center_z,
+     size_x, size_y, size_z) = get_bounding_box(shape)
+    
+    # 解析目标包围盒
+    t_x_min, t_y_min, t_z_min, t_x_max, t_y_max, t_z_max = target_bbox
+    
+    # 计算目标包围盒的中心点和尺寸
+    t_center_x = (t_x_min + t_x_max) / 2
+    t_center_y = (t_y_min + t_y_max) / 2
+    t_center_z = (t_z_min + t_z_max) / 2
+    
+    t_size_x = t_x_max - t_x_min
+    t_size_y = t_y_max - t_y_min
+    t_size_z = t_z_max - t_z_min
+    
+    # 计算缩放因子（取最小比例以确保完全放入）
+    scale_x = t_size_x / size_x if size_x != 0 else 1.0
+    scale_y = t_size_y / size_y if size_y != 0 else 1.0
+    scale_z = t_size_z / size_z if size_z != 0 else 1.0
+    scale_factor = min(scale_x, scale_y, scale_z)
+    
+    # 创建变换矩阵
+    trsf = gp_Trsf()
+    
+    # 1. 平移到原点（以原始几何体中心为基准）
+    trsf.SetTranslation(gp_Vec(-center_x, -center_y, -center_z))
+    
+    # 2. 缩放
+    scale_trsf = gp_Trsf()
+    scale_trsf.SetScale(gp_Pnt(0, 0, 0), scale_factor)
+    trsf = scale_trsf * trsf
+    
+    # 3. 平移到目标包围盒中心
+    translate_trsf = gp_Trsf()
+    translate_trsf.SetTranslation(gp_Vec(t_center_x, t_center_y, t_center_z))
+    trsf = translate_trsf * trsf
+    
+    # 应用变换
+    transformed_shape = TopoDS_Shape(shape)
+    transformed_shape.Move(trsf)
+    
+    return transformed_shape
+
+def main():
+    # 1. 读取STP文件
+    stp_file_path = "input.stp"  # 替换为你的STP文件路径
+    try:
+        shape = read_step_file(stp_file_path)
+        print(f"成功读取STP文件: {stp_file_path}")
+    except Exception as e:
+        print(f"读取STP文件失败: {e}")
+        return
+    
+    # 2. 定义目标包围盒 (x_min, y_min, z_min, x_max, y_max, z_max)
+    # 这里只是示例，你需要根据实际需求修改这些值
+    target_bbox = (-10, -10, -10, 10, 10, 10)  # 一个立方体包围盒示例
+    
+    # 3. 变换几何体到目标包围盒
+    transformed_shape = transform_shape_to_bounding_box(shape, target_bbox)
+    
+    # 4. 显示结果
+    display, start_display, add_menu, add_function_to_menu = init_display()
+    
+    # 显示原始几何体（为了对比，使用半透明）
+    display.DisplayShape(shape, transparency=0.7, color="gray")
+    
+    # 显示变换后的几何体
+    display.DisplayShape(transformed_shape, color="red")
+    
+    # 显示目标包围盒（为了可视化）
+    display.DisplayBox(target_bbox[0], target_bbox[1], target_bbox[2],
+                       target_bbox[3], target_bbox[4], target_bbox[5],
+                       color="blue", transparency=0.9)
+    
+    display.FitAll()
+    start_display()
+
+if __name__ == "__main__":
+    main()

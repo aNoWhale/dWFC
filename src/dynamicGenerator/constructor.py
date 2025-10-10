@@ -62,6 +62,7 @@ def export_cell_structures(mesh:Mesh, rho:np.ndarray ,tileHandle:TileHandler, ou
     else:
         print(f"成功导出 {len(cells)} 个结构到 {output_filename}")
 
+
 if __name__ == "__main__":
     from src.dynamicGenerator.TileImplement.Cube import BCC,FCC
     tileHandler = TileHandler(typeList=['BCC','FCC'], direction=(('back',"front"),("left","right"),("top","bottom")))
@@ -78,4 +79,4 @@ if __name__ == "__main__":
         meshio_mesh = meshio.read("data/msh/box.msh")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
     rho=np.random.randn(10,10,10,2).reshape(-1,2)
-    export_cell_structures(mesh,rho,tileHandler,"test.stp")
+    export_cell_structures(mesh,rho,tileHandler,"test2.stp")
