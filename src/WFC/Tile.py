@@ -32,7 +32,7 @@ class Tile(ABC):
         pass
 
     @property
-    @abstractmethod
+    # @abstractmethod
     def properties(self):
         """
         获取tile的属性。已弃用

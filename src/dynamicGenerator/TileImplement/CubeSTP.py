@@ -4,12 +4,15 @@ from OCC.Core.gp import gp_Trsf, gp_Vec, gp_Pnt
 from OCC.Extend.DataExchange import read_step_file
 from OCC.Core.TopoDS import TopoDS_Shape
 from OCC.Display.SimpleGui import init_display
+from OCC.Core.BRepBndLib import brepbndlib
+from OCC.Core.TopLoc import TopLoc_Location 
 import numpy as np
 
 def get_bounding_box(shape: TopoDS_Shape) -> tuple:
     """获取几何体的包围盒参数"""
     bbox = Bnd_Box()
-    shape.BoundingBox(bbox)
+    bbox.SetGap(1e-4)
+    brepbndlib.Add(shape, bbox)
     
     # 获取包围盒的最小和最大点
     x_min, y_min, z_min, x_max, y_max, z_max = bbox.Get()
@@ -28,22 +31,25 @@ def get_bounding_box(shape: TopoDS_Shape) -> tuple:
             center_x, center_y, center_z,
             size_x, size_y, size_z)
 
-def transform_shape_to_bounding_box(shape: TopoDS_Shape, target_bbox: tuple) -> TopoDS_Shape:
+def transform_shape_to_bounding_box(shape: TopoDS_Shape, target_bbox: tuple ,shapebbox:tuple) -> TopoDS_Shape:
     """
     将几何体变换到目标包围盒中
     
     参数:
         shape: 输入的几何体
         target_bbox: 目标包围盒，格式为(x_min, y_min, z_min, x_max, y_max, z_max)
+        shapebbox: 几何体包围盒，格式为(x_min, y_min, z_min, x_max, y_max, z_max, center_x, center_y, center_z, size_x, size_y, size_z)
     
     返回:
         变换后的几何体
     """
     # 获取原始几何体的包围盒信息
+    # (x_min, y_min, z_min, x_max, y_max, z_max,
+    #  center_x, center_y, center_z,
+    #  size_x, size_y, size_z) = get_bounding_box(shape)
     (x_min, y_min, z_min, x_max, y_max, z_max,
      center_x, center_y, center_z,
-     size_x, size_y, size_z) = get_bounding_box(shape)
-    
+     size_x, size_y, size_z) = shapebbox
     # 解析目标包围盒
     t_x_min, t_y_min, t_z_min, t_x_max, t_y_max, t_z_max = target_bbox
     
@@ -80,7 +86,8 @@ def transform_shape_to_bounding_box(shape: TopoDS_Shape, target_bbox: tuple) -> 
     
     # 应用变换
     transformed_shape = TopoDS_Shape(shape)
-    transformed_shape.Move(trsf)
+    loc = TopLoc_Location(trsf) 
+    transformed_shape.Move(loc)
     
     return transformed_shape
 
@@ -96,6 +103,7 @@ class STPtile(Tile):
     def __init__(self, stp_file_path,):
         try:
             self.shape = read_step_file(stp_file_path)
+            self.bbox = get_bounding_box(self.shape)
             print(f"成功读取STP文件: {stp_file_path}")
         except Exception as e:
             print(f"读取STP文件失败: {e},{stp_file_path}")
@@ -124,5 +132,5 @@ class STPtile(Tile):
         x_min, y_min, z_min = np.min(points, axis=0)
         x_max, y_max, z_max = np.max(points, axis=0)
         box= (x_min, y_min, z_min, x_max, y_max, z_max)
-        result_shape=transform_shape_to_bounding_box(self.shape, box)
+        result_shape=transform_shape_to_bounding_box(self.shape, box, self.bbox)
         return result_shape

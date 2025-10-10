@@ -65,18 +65,20 @@ def export_cell_structures(mesh:Mesh, rho:np.ndarray ,tileHandle:TileHandler, ou
 
 if __name__ == "__main__":
     from src.dynamicGenerator.TileImplement.Cube import BCC,FCC
-    tileHandler = TileHandler(typeList=['BCC','FCC'], direction=(('back',"front"),("left","right"),("top","bottom")))
-    tileHandler.register(['BCC','FCC'],[BCC,FCC])
+    from src.dynamicGenerator.TileImplement.CubeSTP import STPtile
+    Block=STPtile("data/stp/block.stp")
+    tileHandler = TileHandler(typeList=['BCC','FCC',"Block"], direction=(('back',"front"),("left","right"),("top","bottom")))
+    tileHandler.register(['BCC','FCC',"Block"],[BCC,FCC,Block])
     from jax_fem.generate_mesh import get_meshio_cell_type,box_mesh_gmsh
     import meshio
     ele_type = 'HEX8'
     cell_type = get_meshio_cell_type(ele_type)
     Lx, Ly, Lz = 10., 10., 10.
-    Nx, Ny, Nz = 10, 10, 10
+    Nx, Ny, Nz = 5, 5, 5
     if not os.path.exists("data/msh/box.msh"):
         meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type)
     else:
         meshio_mesh = meshio.read("data/msh/box.msh")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
-    rho=np.random.randn(10,10,10,2).reshape(-1,2)
-    export_cell_structures(mesh,rho,tileHandler,"test2.stp")
+    rho=np.random.randn(5,5,5,3).reshape(-1,3)
+    export_cell_structures(mesh,rho,tileHandler,"test3.stp")
