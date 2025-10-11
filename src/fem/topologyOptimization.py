@@ -117,7 +117,6 @@ if not os.path.exists("data/msh/box.msh"):
 else:
     meshio_mesh = meshio.read("data/msh/box.msh")
 mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
-
 # Define boundary conditions and values.
 def fixed_location(point):
     return np.isclose(point[2], 0., atol=0.1+1e-5)

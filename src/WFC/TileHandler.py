@@ -77,7 +77,7 @@ class TileHandler:
 
     @property
     def compatibility(self):
-        return self._compatibility
+        return jnp.array(self._compatibility)
 
 
     def get_name_by_index(self, index: int) -> str:
