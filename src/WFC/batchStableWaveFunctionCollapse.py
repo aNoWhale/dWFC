@@ -28,43 +28,8 @@ from src.WFC.shannonEntropy import shannon_entropy
 from src.WFC.TileHandler import TileHandler
 from src.WFC.builder import visualizer_2D,Visualizer
 from src.WFC.FigureManager import FigureManager
+from src.WFC.top_p import top_p
 
-
-class EntropyHeap:
-    def __init__(self, entropies):
-        self.heap = []
-        self.entropy_map = {}
-        self.collapsed = set()
-        
-        # 只添加未坍缩单元的熵
-        for idx, entropy in enumerate(entropies):
-            self.entropy_map[idx] = entropy
-            heapq.heappush(self.heap, (entropy, idx))
-    
-    def pop_min(self):
-        """获取最小熵的未坍缩单元"""
-        while self.heap:
-            entropy, idx = heapq.heappop(self.heap)
-            if idx not in self.collapsed and jnp.isclose(entropy, self.entropy_map.get(idx, jnp.inf)):
-                return idx, entropy
-        return None, jnp.inf
-    
-    def mark_collapsed(self, idx):
-        """标记单元为已坍缩"""
-        self.collapsed.add(idx)
-        if idx in self.entropy_map:
-            del self.entropy_map[idx]
-    
-    def update(self, idx, new_entropy):
-        """更新单元的熵值"""
-        if idx in self.collapsed:
-            return
-        self.entropy_map[idx] = new_entropy
-        heapq.heappush(self.heap, (new_entropy, idx))
-
-    def is_collapsed(self, idx):
-        """检查单元是否已坍缩"""
-        return idx in self.collapsed
 
 # @jax.jit
 def get_neighbors(csr, index):
@@ -177,66 +142,69 @@ def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
 
 @partial(jax.jit, static_argnames=('tau','max_rerolls','zero_threshold','k'))   
 def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e-3):
-    near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs))
-    
-    # 初始化为有效采样（避免全零问题）
-    initial_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
+
+    selected_indices, selected_probs=top_p(probs, p=0.9, temperature=1.0)
+    selected_gumbel = gumbel_softmax(subkey, selected_probs, tau=tau, hard=False, axis=-1)
     key, subkey = jax.random.split(subkey)
+    gumbeled = selected_indices[selected_gumbel]
+    # 初始化为有效采样（避免全零问题）
+    # initial_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
+    # near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs))
     
     # 检查初始采样是否有效
-    chosen_near_zero = jnp.sum(initial_gumbel * near_zero_mask)
-    should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
+    # chosen_near_zero = jnp.sum(initial_gumbel * near_zero_mask)
+    # should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
     
     # 收敛阈值：当重选概率<0.01时视为稳定
-    CONVERGENCE_THRESHOLD = 0.01
+    # CONVERGENCE_THRESHOLD = 0.01
     
     # 使用cond实现提前终止
-    def continue_scan(should_reroll):
-        return should_reroll > CONVERGENCE_THRESHOLD
+    # def continue_scan(should_reroll):
+        # return should_reroll > CONVERGENCE_THRESHOLD
 
     # 完整的循环扫描（只有初始需要重选时才执行）
-    final_gumbel, total_rerolls, key = jax.lax.cond(
-        continue_scan(should_reroll),
-        true_fun=lambda: full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
-                                       max_rerolls, zero_threshold, k, tau),
-        false_fun=lambda: (initial_gumbel, jnp.array(0.0), subkey)
-    )
+    # final_gumbel, total_rerolls, key = jax.lax.cond(
+    #     continue_scan(should_reroll),
+    #     true_fun=lambda: full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
+    #                                    max_rerolls, zero_threshold, k, tau),
+    #     false_fun=lambda: (initial_gumbel, jnp.array(0.0), subkey)
+    # )
      
-    return final_gumbel, total_rerolls, key
+    return gumbeled, key
 
-@partial(jax.jit, static_argnames=('max_rerolls','zero_threshold','k','tau'))
-def full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
-                max_rerolls, zero_threshold, k, tau):
-    """执行完整的重选扫描循环"""
-    def body_fn(state, i):
-        reroll_count, gumbel, subkey = state
-        current_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
-        key, subkey = jax.random.split(subkey)
+# @partial(jax.jit, static_argnames=('max_rerolls','zero_threshold','k','tau'))
+# def full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
+#                 max_rerolls, zero_threshold, k, tau):
+#     """执行完整的重选扫描循环"""
+#     def body_fn(state, i):
+#         reroll_count, gumbel, subkey = state
+#         current_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
+#         key, subkey = jax.random.split(subkey)
         
-        # 检测是否需要重选
-        chosen_near_zero = jnp.sum(current_gumbel * near_zero_mask)
-        should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
+#         # 检测是否需要重选
+#         chosen_near_zero = jnp.sum(current_gumbel * near_zero_mask)
+#         should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
         
-        # 混合新旧采样
-        new_gumbel = (1 - should_reroll) * current_gumbel + should_reroll * gumbel
-        new_gumbel = new_gumbel / (jnp.sum(new_gumbel, axis=-1, keepdims=True) + 1e-8)
+#         # 混合新旧采样
+#         new_gumbel = (1 - should_reroll) * current_gumbel + should_reroll * gumbel
+#         new_gumbel = new_gumbel / (jnp.sum(new_gumbel, axis=-1, keepdims=True) + 1e-8)
         
-        # 更新重选计数（只累计实际发生的重选）
-        new_reroll = reroll_count + jnp.clip(should_reroll, 0, 1)
+#         # 更新重选计数（只累计实际发生的重选）
+#         new_reroll = reroll_count + jnp.clip(should_reroll, 0, 1)
         
-        # 返回更新后的状态
-        return (new_reroll, new_gumbel, key), should_reroll
+#         # 返回更新后的状态
+#         return (new_reroll, new_gumbel, key), should_reroll
     
-    initial_state = (jnp.array(1.0), initial_gumbel, subkey)
+#     initial_state = (jnp.array(1.0), initial_gumbel, subkey)
     
-    # 执行扫描，同时跟踪收敛情况
-    (total_rerolls, final_gumbel, key), reroll_probs = jax.lax.scan(
-        body_fn, 
-        initial_state, 
-        jnp.arange(max_rerolls)
-    )
+#     # 执行扫描，同时跟踪收敛情况
+#     (total_rerolls, final_gumbel, key), reroll_probs = jax.lax.scan(
+#         body_fn, 
+#         initial_state, 
+#         jnp.arange(max_rerolls)
+#     )
     
-    return final_gumbel, total_rerolls, key
+#     return final_gumbel, total_rerolls, key
 
 def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|str=False,*args,**kwargs)->jnp.ndarray:
     """a WFC function
@@ -305,7 +273,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         # 坍缩选定的单元
         key, subkey = jax.random.split(key)
 
-        p_collapsed, _ , key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=1e-5, tau=1e-3,k=1000)
+        p_collapsed, key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=1e-5, tau=1e-3,k=1000)
         # print(f"p_collapsed:{p_collapsed}")
         probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
 

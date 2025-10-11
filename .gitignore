@@ -10,3 +10,4 @@ src/fem/data/
 data/img/**.jpg
 **.stp
 **.vtu
+**.msh

@@ -202,7 +202,7 @@ def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e
         false_fun=lambda: (initial_gumbel, jnp.array(0.0), subkey)
     )
      
-    return final_gumbel, total_rerolls, key
+    return final_gumbel, key
 
 @partial(jax.jit, static_argnames=('max_rerolls','zero_threshold','k','tau'))
 def full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
@@ -305,7 +305,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         # 坍缩选定的单元
         key, subkey = jax.random.split(key)
 
-        p_collapsed, _ , key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=1e-5, tau=1e-3,k=1000)
+        p_collapsed,  key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=1e-5, tau=1e-3,k=1000)
         # print(f"p_collapsed:{p_collapsed}")
         probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
 
