@@ -106,6 +106,57 @@ class Elasticity(Problem):
         traction = -jax.vmap(jax.vmap(neumann_fn))(u_face, subset_quad_points) # (num_selected_faces, num_face_quads, vec)
         val = np.sum(traction * u_face * nanson_scale[:, :, None])
         return val
+    
+    def compute_poissons_ratio(self, sol):
+        # 获取位移梯度
+        u_grad = self.fe.sol_to_grad(sol)
+        
+        # 计算应变张量 (num_cells, num_quads, vec, dim)
+        epsilon = 0.5 * (u_grad + u_grad.transpose(0, 1, 3, 2))
+        
+        # 提取应变分量
+        epsilon_xx = epsilon[..., 0, 0]  # x方向正应变
+        epsilon_yy = epsilon[..., 1, 1]  # y方向正应变
+        epsilon_zz = epsilon[..., 2, 2]  # z方向正应变（压缩方向）
+        
+        # 获取积分权重 (num_cells, num_quads)
+        cells_JxW = self.JxW[:, 0, :]
+        
+        # 计算单元体积 (num_cells,)
+        cell_volumes = np.sum(cells_JxW, axis=1)
+        
+        # 计算单元平均应变
+        cell_eps_xx = np.sum(epsilon_xx * cells_JxW, axis=1) / cell_volumes
+        cell_eps_yy = np.sum(epsilon_yy * cells_JxW, axis=1) / cell_volumes
+        cell_eps_zz = np.sum(epsilon_zz * cells_JxW, axis=1) / cell_volumes
+        
+        # 计算单元级泊松比
+        cell_poisson_xz = -cell_eps_xx / cell_eps_zz
+        cell_poisson_yz = -cell_eps_yy / cell_eps_zz
+        
+        # 计算全局体积加权平均泊松比
+        total_volume = np.sum(cells_JxW)
+        avg_poisson_xz = -np.sum(epsilon_xx * cells_JxW) / np.sum(epsilon_zz * cells_JxW)
+        avg_poisson_yz = -np.sum(epsilon_yy * cells_JxW) / np.sum(epsilon_zz * cells_JxW)
+        results={
+                'cell_poisson_xz': cell_poisson_xz,
+                'cell_poisson_yz': cell_poisson_yz,
+                'avg_poisson_xz': avg_poisson_xz,
+                'avg_poisson_yz': avg_poisson_yz,
+                'cell_eps_xx': cell_eps_xx,
+                'cell_eps_yy': cell_eps_yy,
+                'cell_eps_zz': cell_eps_zz
+            }
+        return avg_poisson_xz, avg_poisson_yz
+        # 在求解完成后调用
+        # poisson_results = problem.compute_poissons_ratio(sol)
+
+        # # 获取结果
+        # cell_poisson_xy = poisson_results['cell_poisson_xy']
+        # avg_poisson_xy = poisson_results['avg_poisson_xy']
+
+        # print(f"全局平均x方向泊松比: {avg_poisson_xy:.6f}")
+        # print(f"单元级泊松比分布形状: {cell_poisson_xy.shape}")
 
 # Specify mesh-related information. We use first-order quadrilateral element.
 ele_type = 'HEX8'

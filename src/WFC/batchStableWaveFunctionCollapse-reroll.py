@@ -18,7 +18,7 @@ import tqdm.rich as tqdm
 
 import scipy.sparse
 import numpy as np
-
+import meshio
 
 from collections import defaultdict
 from scipy.sparse import csr_matrix
@@ -28,6 +28,7 @@ from src.WFC.shannonEntropy import shannon_entropy
 from src.WFC.TileHandler import TileHandler
 from src.WFC.builder import visualizer_2D,Visualizer
 from src.WFC.FigureManager import FigureManager
+from src.WFC.chunkTools.chunkTools import *
 
 
 # @jax.jit
@@ -178,7 +179,7 @@ def full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask,
     
     return final_gumbel, total_rerolls, key
 
-def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|str=False,*args,**kwargs)->jnp.ndarray:
+def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,*args,**kwargs)->jnp.ndarray:
     """a WFC function
 
     Args:
@@ -202,10 +203,6 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
 
 
     should_stop = False
-    if plot=="2d":
-        # visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=0)
-        visualizer:Visualizer=kwargs.pop("visualizer",None)
-        visualizer.add_frame(probs=probs)
     pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles")
     id_pattern=None
     while should_stop is False:
@@ -253,14 +250,6 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
         # print(f"updated neighbors: \n{probs}")
 
-
-        if plot is not False:
-            if plot == '2d':
-                # visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=pbar.n)
-                visualizer.add_frame(probs=probs)
-            if plot == "3d":
-                #TODO 3D visualizer here
-                pass
         if pbar.n > pbar.total:
             pbar.set_description_str("fixing high entropy")
         # print(f"probs: \n{probs}",)
@@ -269,90 +258,51 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
     pbar.close()
     return probs, max_entropy, id_pattern
 
+
+def waveFunctionCollapseBatch(index_global, adj_csr_global, chunks, tileHandler:TileHandler, *args, **kwargs):
+    init_probs_global = np.ones_like(index_global)/tileHandler.typeNum
+    region_adj_list = get_region_specific_adj(adj_csr_global, chunks=chunks)
+    waveFunctionCollapse()
+
 if __name__ == "__main__":
-    from src.utiles.adjacency import build_grid_adjacency
-    height = 10
-    width = 10
-    adj=build_grid_adjacency(height=height, width=width, connectivity=4)
+    # from src.utiles.adjacency import build_grid_adjacency
+    # height = 10
+    # width = 10
+    # adj=build_grid_adjacency(height=height, width=width, connectivity=4)
 
-    # from src.utiles.generateMsh import generate_cube_hex_mesh
-    # msh_name='box.msh'
-    # from jax_fem.generate_mesh import box_mesh_gmsh
-    # Nx,Ny,Nz=2,2,2
-    # meshio_mesh = box_mesh_gmsh(
-    #     Nx=Nx,
-    #     Ny=Ny,
-    #     Nz=Nz,
-    #     domain_x=1.0,
-    #     domain_y=1.0,
-    #     domain_z=1.0,
-    #     data_dir=f"data",
-    #     ele_type='HEX8',
-    # )
-    # from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
-    # adj = build_hex8_adjacency_with_meshio(f'data/msh/{msh_name}')
+    from src.utiles.generateMsh import generate_cube_hex_mesh
+    msh_name='box.msh'
+    from jax_fem.generate_mesh import box_mesh_gmsh
+    core=5
+    padding=2
+    cx,cy,cz=2,2,2
+    Nx,Ny,Nz=cx*(core+2*padding),cy*(core+2*padding),cz*(core+2*padding)
+    meshio_mesh = box_mesh_gmsh(
+        Nx=Nx,
+        Ny=Ny,
+        Nz=Nz,
+        domain_x=10.0,
+        domain_y=10.0,
+        domain_z=10.0,
+        data_dir=f"data",
+        ele_type='HEX8',
+    )
+    from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
+    adj = build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 
-    tileHandler = TileHandler(typeList=['a','b','c','d','e'],direction=(('up',"down"),("left","right"),))
-    from src.dynamicGenerator.TileImplement.Dimension2.LinePath import LinePath
-    tileHandler.register(typeName='a',class_type=LinePath(['da-bc','cen-cd'],color='blue'))
-    tileHandler.register(typeName='b',class_type=LinePath(['ab-cd','cen-da'],color='green'))
-    tileHandler.register(typeName='c',class_type=LinePath(['da-bc','cen-ab'],color='yellow'))
-    tileHandler.register(typeName='d',class_type=LinePath(['ab-cd','cen-bc'],color='red'))
-    tileHandler.register(typeName='e',class_type=LinePath(['da-bc','ab-cd'],color='magenta'))
-
-    tileHandler.selfConnectable(typeName="e",direction='isotropy',value=1)
-
-
-    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','d','b'],direction='down',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','d','a'],direction='left',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','b','a'],direction='right',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='a',toTypeName='c',direction='up',value=1,dual=True)
+    index_global = map_mesh_to_tensor(mesh=meshio_mesh, nx=Nx, ny=Ny, nz=Nz)
+    chunk_mask = make_chunk_mask(core_size=core, padding_size=padding, cx=cx, cy=cy, cz=cz)
+    chunks=[]
+    for code in range(cx*cy*cz):
+        chunks.append(index_global(np.where(chunk_mask == code)))
 
 
-    tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','a','c'],direction='left',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','a','b'],direction='up',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','c','b'],direction='down',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='b',toTypeName='d',direction='right',value=1,dual=True)
 
+    tileHandler = TileHandler(typeList=['solid','void','weird'], direction=(('back',"front"),("left","right"),("top","bottom")))
+    tileHandler.setConnectiability(fromTypeName='solid',toTypeName=["void","weird"],direction="isotropy",value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='void', toTypeName="weird", direction="isotropy",value=1,dual=True)
+    tileHandler.selfConnectable(typeName=['solid',"void","weird"],value=1)
 
-    tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','d','a','b'],direction='up',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','d','a','c'],direction='left',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','b','c'],direction='right',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',direction='down',value=1,dual=True)
+    # probs,max_entropy, _=waveFunctionCollapse(init_probs,adj,tileHandler,points=adj['vertices'])
+    waveFunctionCollapseBatch()
 
-
-    tileHandler.setConnectiability(fromTypeName='d',toTypeName=['e','c','a','b'],direction='right',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='d',toTypeName=['e','a','b','d'],direction='up',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='d',toTypeName=['e','c','b','d'],direction='down',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='d',toTypeName='b',direction='left',value=1,dual=True)
-
-
-    tileHandler.setConnectiability(fromTypeName='e',toTypeName='a',direction='up',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='e',toTypeName='b',direction='right',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='e',toTypeName='c',direction='down',value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='e',toTypeName='d',direction='left',value=1,dual=True)
-
-    # tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',direction='left',value=0,dual=True)
-    # tileHandler.setConnectiability(fromTypeName='a',toTypeName='d',direction='right',value=0,dual=True)
-    # tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',direction='up',value=0,dual=True)
-    # tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',direction='down',value=0,dual=True)
-    # tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',direction='left',value=0,dual=True)
-    # tileHandler.setConnectiability(fromTypeName='c',toTypeName='d',direction='right',value=0,dual=True)
-    # tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='up',value=0,dual=True)
-    # tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='down',value=0,dual=True)
-    # print(f"tileHandler:\n {tileHandler}")
-
-    num_elements = adj['num_elements']
-    numTypes = tileHandler.typeNum
-    init_probs = jnp.ones((num_elements ,numTypes)) / numTypes # (n_elements, n_types)
-    from src.utiles.generateMsh import generate_grid_vertices_vectorized
-    figureManager=FigureManager(figsize=(10,10))
-    visualizer=Visualizer(tileHandler=tileHandler,points=adj['vertices'],figureManager=figureManager)
-    grid= generate_grid_vertices_vectorized(width+1,height+1)
-    probs,max_entropy, _=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
-    visualizer.draw()
-    visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManager,epoch='end')
-    pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(width,height)
-    name_pattern = tileHandler.pattern_to_names(pattern)
-    print(f"pattern: \n{name_pattern}")
-    print(f"max entropy: {max_entropy}")
