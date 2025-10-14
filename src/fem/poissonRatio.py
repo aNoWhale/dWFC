@@ -1,4 +1,4 @@
-# Import some useful modules.
+
 import sys
 import numpy as onp
 
@@ -58,27 +58,12 @@ class Elasticity(Problem):
 
     def get_tensor_map(self):
         def stress(u_grad, weights):
-            # Plane stress assumption
-            # Reference: https://en.wikipedia.org/wiki/Hooke%27s_law
-            # Emax = 70.e3
-            # Emin = 1e-3*Emax
-            # nu = 0.3
-            # penal = 3.
-            # E = Emin + (Emax - Emin)*theta[0]**penal
-            # epsilon = 0.5*(u_grad + u_grad.T)
-            # eps11 = epsilon[0, 0]
-            # eps22 = epsilon[1, 1]
-            # eps12 = epsilon[0, 1]
-            # sig11 = E/(1 + nu)/(1 - nu)*(eps11 + nu*eps22)
-            # sig22 = E/(1 + nu)/(1 - nu)*(nu*eps11 + eps22)
-            # sig12 = E/(1 + nu)*eps12
-            # sigma = np.array([[sig11, sig12], [sig12, sig22]])
-
             return self.sigma(u_grad,weights)
         return stress
 
     def get_surface_maps(self):
         def surface_map(u, x):
+
             return np.array([0., 0., -1e3])
         return [surface_map]
 
@@ -189,13 +174,18 @@ fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solv
 
 # Define the objective function 'J_total(theta)'.
 # In the following, 'sol = fwd_pred(params)' basically says U = U(theta).
+poisson_xz=0.2
+poisson_yz=0.3
 def J_total(params):
     # J(u(theta), theta)
     sol_list = fwd_pred(params)
-    compliance = problem.compute_compliance(sol_list[0])
+    # compliance = problem.compute_compliance(sol_list[0])
     avg_poisson_xz, avg_poisson_yz = problem.compute_poissons_ratio(sol_list[0])
+    loss_xz=(avg_poisson_xz-poisson_xz )**2
+    loss_yz=(avg_poisson_yz-poisson_yz )**2
     jax.debug.print("avg_poisson_xz= {a},\navg_poisson_yz= {b}",a=avg_poisson_xz,b=avg_poisson_yz)
-    return compliance, sol_list
+    J=loss_xz+loss_yz
+    return J, sol_list
 
 
 # Output solution files to local disk
@@ -210,7 +200,7 @@ def output_sol(params, obj_val,sol_list):
     cell_infos.append( ('all', np.argmax(params,axis=-1)) )
     save_sol(problem.fe, np.hstack((sol, np.zeros((len(sol), 1)))), vtu_path, 
              cell_infos=cell_infos)
-    print(f"compliance = {obj_val}")
+    print(f"J = {obj_val}\n")
     outputs.append(obj_val)
     output_sol.counter += 1
 output_sol.counter = 0
@@ -221,6 +211,7 @@ def objectiveHandle(rho):
     # MMA solver requires (J, dJ) as inputs
     # J has shape ()
     # dJ has shape (...) = rho.shape
+    # to minimum the J
     (J, sol), dJ = jax.value_and_grad(J_total,has_aux=True)(rho)
     output_sol(rho, J, sol)
     return J, dJ

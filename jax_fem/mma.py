@@ -498,10 +498,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum))
         # prob_collapsed=rho
         rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
-        # 可能不能降采样了，需要让sigma支持加权输入
-        # rho = np.asarray(np.argmax(prob_collapsed,axis=-1),dtype=np.float64).reshape(-1,1)
-        # print(f"downsampled rho.dtype{rho.dtype}")
-        # print(f"downsampled rho.shape:{rho.shape}")
+
         
         if density_filtering:
             rho_physical = applyDensityFilter(ft, rho)
