@@ -464,11 +464,12 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     min_iters = optimizationParams.get('min_iters', 10)
     J_prev = np.inf
     rho_prev = rho_ini.copy()
+    rho = rho_ini
+    alpha = 1.0
+    J_list=[]
 
     H, Hs = compute_filter_kd_tree(fe)
     ft = {'H':H, 'Hs':Hs}
-
-    rho = rho_ini
 
     loop = 0
     m = numConstraints # num constraints
@@ -490,12 +491,12 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     mma.setMoveLimit(optimizationParams['movelimit']) 
 
     while loop < optimizationParams['maxIters']:
+        alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
         loop = loop + 1
-
         print(f"MMA solver...")
         print(f"collapsing...")
         print(f"rho.shape: {rho.shape}")
-        prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum))
+        prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum),)
         # prob_collapsed=rho
         rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
 
@@ -521,8 +522,12 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         print(f"rho_ini.shape = {rho_ini.shape}")
         print(f"rho_physical.shape = {rho_physical.shape}")
+        print(f"dJ.max: {np.max(dJ)}")
+        print(f"dJ.min: {np.min(dJ)}")
+
 
         J, dJ, vc, dvc = np.array(J), np.array(dJ), np.array(vc), np.array(dvc)
+        J_list.append(J)
 
         start = time.time()
 
@@ -536,18 +541,18 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         xval = xmma.copy()
 
         mma.registerMMAIter(xval, xold1, xold2)
-        rho = xval.reshape(rho.shape)
-
+        rho_mma = xval.reshape(rho.shape)
+        rho = alpha * rho_mma+(1-alpha) * rho_prev #混合
         end = time.time()
 
         time_elapsed = end - start
 
-        print(f"\n****************\nMMA took {time_elapsed} [s]")
+        print(f"\nMMA took {time_elapsed} [s]")
 
-        print(f'Iter {loop:d}; J {J:.5f}; \nconstraint \n{vc}\n\n\n')
+        print(f'Iter {loop:d}; J {J:.5f}; \nconstraint: \n{vc}')
         if loop > min_iters:
             # 目标函数变化
-            obj_change = abs(J_prev - J)
+            obj_change = J - J_prev
             
             # 设计变量变化
             design_change = np.linalg.norm(rho - rho_prev)
@@ -557,9 +562,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             
             # 梯度范数
             grad_norm = np.linalg.norm(dJ)
-            
+            print(f"obj_change:{obj_change}\ndesign_change:{design_change}\ncon_violation:{con_violation}\ngrad_norm:{grad_norm}\n**********************")
             # 复合停止条件
-            if obj_change < max(1e-6, tol_obj*abs(J_prev)) and \
+            if abs(obj_change) < max(1e-6, tol_obj*abs(J_prev)) and \
                (design_change < tol_design) and \
                (con_violation <= tol_con) and \
                (grad_norm < tol_grad):

@@ -28,6 +28,7 @@ from jax_fem.solver import solver, ad_wrapper
 from jax_fem.utils import save_sol
 from jax_fem.generate_mesh import get_meshio_cell_type, Mesh, rectangle_mesh, box_mesh_gmsh
 from jax_fem.mma import optimize
+from jax_fem.periodicBC import periodic_boundary_conditions
 
 from src.fem.SigmaInterpreter import SigmaInterpreter
 from src.WFC.TileHandler import TileHandler
@@ -139,7 +140,7 @@ class Elasticity(Problem):
 ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
 Lx, Ly, Lz = 10., 10., 10.
-Nx, Ny, Nz = 10, 10, 10
+Nx, Ny, Nz = 5, 5, 5
 if not os.path.exists("data/msh/box.msh"):
     meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type)
 else:
@@ -165,26 +166,50 @@ tileHandler.setConnectiability(fromTypeName='void', toTypeName="weird", directio
 tileHandler.selfConnectable(typeName=['solid',"void","weird"],value=1)
 
 # Define forward problem.
+# def mapping_x(point_A):
+#     point_B = point_A + np.array([Lx, 0, 0])
+#     return point_B
+# def mapping_y(point_A):
+#     point_B = point_A + np.array([0, Ly, 0])
+#     return point_B
+
+# def xn(point):
+#     return np.isclose(point[0], 0., atol=0.1+1e-5)
+# def xp(point):
+#     return np.isclose(point[0], Lx, atol=0.1+1e-5)
+# def yn(point):
+#     return np.isclose(point[1], 0., atol=0.1+1e-5)
+# def yp(point):
+#     return np.isclose(point[1], Ly, atol=0.1+1e-5)
+# location_fns_A = [xn,yn] 
+# location_fns_B = [xp,yp] 
+# mappings = [mapping_x,mapping_y]
+# vecs = [0, 1 ,2]
+# periodic_bc_info = [location_fns_A, location_fns_B, mappings, vecs]
+# vec=3
+# P_mat = periodic_boundary_conditions(periodic_bc_info, mesh, vec)
 problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
                      additional_info=(SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/C",debug=False),))
-
+# problem.P_mat = P_mat
 # Apply the automatic differentiation wrapper.
 # This is a critical step that makes the problem solver differentiable.
-fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solver_options={'petsc_solver': {}})
+# fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solver_options={'petsc_solver': {}})
+fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {'ksp_type':'tfqmr','pc_type':'lu'}}, adjoint_solver_options={'petsc_solver': {}})
+
 
 # Define the objective function 'J_total(theta)'.
 # In the following, 'sol = fwd_pred(params)' basically says U = U(theta).
-poisson_xz=0.2
-poisson_yz=0.3
+# poisson_xz=0.2
+# poisson_yz=0.3
 def J_total(params):
     # J(u(theta), theta)
     sol_list = fwd_pred(params)
     # compliance = problem.compute_compliance(sol_list[0])
     avg_poisson_xz, avg_poisson_yz = problem.compute_poissons_ratio(sol_list[0])
-    loss_xz=(avg_poisson_xz-poisson_xz )**2
-    loss_yz=(avg_poisson_yz-poisson_yz )**2
+    # loss_xz=(avg_poisson_xz-poisson_xz)**2
+    # loss_yz=(avg_poisson_yz-poisson_yz)**2
     jax.debug.print("avg_poisson_xz= {a},\navg_poisson_yz= {b}",a=avg_poisson_xz,b=avg_poisson_yz)
-    J=loss_xz+loss_yz
+    J = avg_poisson_xz
     return J, sol_list
 
 
@@ -228,8 +253,8 @@ def consHandle(rho, epoch):
     def computeGlobalVolumeConstraint(rho):
         g = np.mean(rho)/vf1 - 1.
         return g
-    c0, gradc0 = jax.value_and_grad(lambda rho: np.mean(rho[...,0])/vf0 - 1.)(rho)
-    c1, gradc1 = jax.value_and_grad(lambda rho: np.mean(rho[...,1])/vf1 - 1.)(rho)
+    c0, gradc0 = jax.value_and_grad(lambda rho: np.mean(rho[...,0])/vf0-1)(rho)
+    c1, gradc1 = jax.value_and_grad(lambda rho: np.mean(rho[...,1])/vf1-1)(rho)
 
     c=np.array([c0,c1])
     gradc=np.array([gradc0,gradc1])
@@ -242,19 +267,27 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 wfc=lambda prob: waveFunctionCollapse(prob, adj, tileHandler)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':51, 'movelimit':0.1}
+optimizationParams = {'maxIters':101, 'movelimit':0.1}
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
 print(f"rho_ini.shape{rho_ini.shape}")
 rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
 np.save("cache/rho_oped",rho_oped)
-print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")
+# print(f"As a reminder, J = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")
 
 # Plot the optimization results.
 obj = onp.array(outputs)
-plt.figure(figsize=(10, 8))
-plt.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
-plt.xlabel(r"Optimization step", fontsize=20)
-plt.ylabel(r"Objective value", fontsize=20)
-plt.tick_params(labelsize=20)
-plt.tick_params(labelsize=20)
+onp.savetxt( "data/csv/poisson_obj.csv", onp.array(obj), delimiter="," )
+onp.savetxt( "data/csv/poisson_J.csv", onp.array(J_list), delimiter="," )
+
+fig=plt.figure(figsize=(12, 5))
+ax=fig.add_subplot(1,2,1)
+ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
+# ax.xlabel(r"Optimization step", fontsize=20)
+# ax.ylabel(r"Objective value", fontsize=20)
+# ax.tick_params(labelsize=20)
+# ax.tick_params(labelsize=20)
+
+ax=fig.add_subplot(1,2,2)
+ax.plot(onp.arange(len(J_list))+1,J_list,linestyle="-", linewidth=2, color='black')
+plt.savefig("data/poisson.tiff")
 plt.show()

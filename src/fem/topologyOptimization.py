@@ -185,7 +185,9 @@ problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=di
 
 # Apply the automatic differentiation wrapper.
 # This is a critical step that makes the problem solver differentiable.
-fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solver_options={'petsc_solver': {}})
+# fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solver_options={'petsc_solver': {}})
+fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {'ksp_type':'tfqmr','pc_type':'lu'}}, adjoint_solver_options={'petsc_solver': {}})
+
 
 # Define the objective function 'J_total(theta)'.
 # In the following, 'sol = fwd_pred(params)' basically says U = U(theta).
@@ -194,7 +196,7 @@ def J_total(params):
     sol_list = fwd_pred(params)
     compliance = problem.compute_compliance(sol_list[0])
     avg_poisson_xz, avg_poisson_yz = problem.compute_poissons_ratio(sol_list[0])
-    jax.debug.print("avg_poisson_xz= {a},\navg_poisson_yz= {b}",a=avg_poisson_xz,b=avg_poisson_yz)
+    jax.debug.print("avg_poisson_xz= {a}\navg_poisson_yz= {b}",a=avg_poisson_xz,b=avg_poisson_yz)
     return compliance, sol_list
 
 
@@ -248,7 +250,7 @@ def consHandle(rho, epoch):
     return c, gradc
 
 adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
-wfc=lambda prob: waveFunctionCollapse(prob, adj, tileHandler)
+wfc=lambda prob, *args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,args,kwargs)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
 optimizationParams = {'maxIters':51, 'movelimit':0.1}
@@ -260,10 +262,17 @@ print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds),
 
 # Plot the optimization results.
 obj = onp.array(outputs)
-plt.figure(figsize=(10, 8))
-plt.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
-plt.xlabel(r"Optimization step", fontsize=20)
-plt.ylabel(r"Objective value", fontsize=20)
-plt.tick_params(labelsize=20)
-plt.tick_params(labelsize=20)
+fig=plt.figure()
+ax=fig.add_subplot(1,2,1)
+ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
+ax.xlabel(r"Optimization step", fontsize=20)
+ax.ylabel(r"Objective value", fontsize=20)
+ax.tick_params(labelsize=20)
+ax.tick_params(labelsize=20)
+np.savetxt( "data/topo_obj.csv", np.array(obj), delimiter="," )
+
+ax=fig.add_subplot(1,2,2)
+ax.plot(onp.arange(len(J_list))+1,J_list,linestyle="-", linewidth=2, color='black')
+np.savetxt( "data/topo_J.csv", np.array(J_list), delimiter="," )
+plt.savefig("data/topo.tiff")
 plt.show()

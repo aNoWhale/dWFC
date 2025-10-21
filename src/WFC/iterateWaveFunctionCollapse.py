@@ -6,7 +6,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 import gmsh
-import heapq
 import jax
 jax.config.update('jax_disable_jit', True)
 
@@ -46,61 +45,53 @@ def collapsed_mask(probabilities, threshold=0.99):
     创建连续掩码标记已坍缩单元
     1 = 未坍缩, 0 = 已坍缩（接近 one-hot）
     """
-    #TODO 如果一次坍缩多个，这个mask可能会失效
     max_probs = jnp.max(probabilities, axis=-1, keepdims=True)
     return jax.nn.sigmoid(-1000 * (max_probs - threshold))
 
 @partial(jax.jit, static_argnames=('tau',))
-def select_collapse(key, probs, tau=0.03):
+def select_collapse(key, probs, tau=0.03,*args, **kwargs):
     """
     calculate shannon entropy, give out mask by probability, modify shannon entropy by mask, select uncollapsed.
     """
     # 1. 计算各单元熵值
     entropy = shannon_entropy(probs,axis=-1)
-
     # 2. 标记已坍缩单元
     mask = collapsed_mask(probs).squeeze()
-
+    c_map=kwargs.pop("collapse_map",None)+mask
     # 3. 调整熵值：已坍缩单元赋予高熵值
     # 未坍缩: entropy_adj = entropy
     # 已坍缩: entropy_adj = max_entropy + 1
     max_entropy = jnp.max(entropy)
-    # print(f"max entropy: {max_entropy}", )
-    entropy_adj = entropy * mask + (1 - mask) * (max_entropy + 10.0)
-
+    entropy_adj = entropy * mask + (1 - mask) * (max_entropy + 100.0)
+    entropy_adj = entropy * 1/(c_map+1)
     # 4. 转换为选择概率（最小熵对应最高概率）
     selection_logits = -entropy_adj  # 最小熵->最大logits
-    # print('modified logits:\n',selection_logits)
+    # selection_logits = entropy_adj
     # 5. 使用Gumbel-Softmax采样位置
     flat_logits = selection_logits.reshape(-1)
 
     collapse_probs = gumbel_softmax(key, flat_logits, tau=tau, hard=True, axis=-1, eps=1e-10)
     collapse_idx = jnp.argmax(collapse_probs)
 
-    return collapse_idx, max_entropy
+    return collapse_idx, max_entropy,c_map
 
+def select_collapse_by_map(key,map):
+    wait4collapseIndices = jnp.where( map == jnp.max(map))
+    probs = jnp.ones_like(wait4collapseIndices[0])/len(wait4collapseIndices[0])
+    collapse_probs = gumbel_softmax(key, probs, hard=True, axis=-1, eps=1e-10)
+    collapse_idx = jnp.argmax(collapse_probs)
+    return wait4collapseIndices[0][collapse_idx]
 
 @partial(jax.jit, static_argnames=())
 def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite_index, compatibility):
     def update_single(neighbor_prob,opposite_dire_index):
-        # print(f"neighbor_prob.shape:{neighbor_prob.shape}")
         p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
-        # p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob) #(d,i) (i,) ->(d,i) (1,i) -> (d,i) 
-
         norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
         return p_c / jnp.where(norm == 0, 1.0, norm)
-    # p=probs[collapse_id]
-    # for neighbor,di,odi in zip(neighbors,dirs_index, dirs_opposite_index):
-    #     p=p*update_single(probs[neighbor],odi)
-    # norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
-    # p = p / jnp.where(norm == 0, 1.0, norm)
-    # probs=probs.at[collapse_id].set(p)
-    # return probs
+
     neighbor_probs = probs[neighbors]
     neighbor_probs = jnp.atleast_1d(neighbor_probs)
     opposite_indices = jnp.array(dirs_opposite_index)
-    # print(f"neighbor_probs.shape:{neighbor_probs.shape}")
-    # print(f"opposite_indices.shape:{opposite_indices.shape}")
     batch_update = jax.vmap(update_single)
     update_factors = batch_update(neighbor_probs, opposite_indices)
     cumulative_factor = jnp.prod(update_factors, axis=0)
@@ -109,133 +100,36 @@ def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite
     p = p / jnp.where(norm == 0, 1.0, norm)
     return probs.at[collapse_id].set(p)
 
-# @partial(jax.jit, static_argnames=())
-# def update_neighbors(probs, neighbors, dirs_index ,p_collapsed, compatibility):
-#     def update_single(neighbor_prob):
-#         p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
-#         p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob) #(d,i) (i,) ->(d,i) (1,i) -> (d,i) 
-#         # print(f"compatibiliy @ p_collapsed * neighbor_prob:\n{jnp.einsum('...ij,...j->...i',compatibility, p_collapsed)} * {neighbor_prob}")
-#         # print(f'p_neigh: {p_neigh}')
-#         norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
-#         p_neigh = p_neigh / jnp.where(norm == 0, 1.0, norm)
-#         return jnp.clip(p_neigh, 0, 1)
-#     for neighbor,dirs in zip(neighbors,dirs_index):
-#         prob=update_single(probs[neighbor])
-#         # print(f"update neighbor {neighbor} with {prob}")
-#         probs = probs.at[neighbor].set(prob[dirs])
-#     return probs
-
 @jax.jit
 def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
-    # 定义向量化更新函数（包含方向选择）
     def vectorized_update(neighbor_prob, dir_idx):
         p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed)
         p_neigh = jnp.einsum("...i,...i->...i", p_neigh, neighbor_prob)
         norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
         p_neigh = p_neigh / jnp.where(norm == 0, 1.0, norm)
         return jnp.clip(p_neigh[dir_idx], 0, 1)
-    # print(f"probs[neighbors].shape:{probs[neighbors].shape}")
     dirs_index=jnp.array(dirs_index)
-    # print(f"dirx_index.shape:{dirs_index.shape}")
     updated_probs = jax.vmap(vectorized_update)(probs[neighbors], dirs_index)
     return probs.at[neighbors].set(updated_probs)
 
-# @partial(jax.jit, static_argnames=('tau','max_rerolls','zero_threshold','k'))   
-# def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e-3):
-#     near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs))
-    
-#     # 初始化为有效采样（避免全零问题）
-#     initial_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
-#     key, subkey = jax.random.split(subkey)
-    
-#     # 检查初始采样是否有效
-#     chosen_near_zero = jnp.sum(initial_gumbel * near_zero_mask)
-#     should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
-    
-#     # 收敛阈值：当重选概率<0.01时视为稳定
-#     CONVERGENCE_THRESHOLD = 0.01
-    
-#     # 使用cond实现提前终止
-#     def continue_scan(should_reroll):
-#         return should_reroll > CONVERGENCE_THRESHOLD
-
-#     # 完整的循环扫描（只有初始需要重选时才执行）
-#     final_gumbel, total_rerolls, key = jax.lax.cond(
-#         continue_scan(should_reroll),
-#         true_fun=lambda: full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
-#                                        max_rerolls, zero_threshold, k, tau),
-#         false_fun=lambda: (initial_gumbel, jnp.array(0.0), subkey)
-#     )
-     
-#     return final_gumbel, key
-
-# @partial(jax.jit, static_argnames=('max_rerolls','zero_threshold','k','tau'))
-# def full_scan_loop(subkey, probs, initial_gumbel, near_zero_mask, 
-#                 max_rerolls, zero_threshold, k, tau):
-#     """执行完整的重选扫描循环"""
-#     def body_fn(state, i):
-#         reroll_count, gumbel, subkey = state
-#         current_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
-#         key, subkey = jax.random.split(subkey)
-        
-#         # 检测是否需要重选
-#         chosen_near_zero = jnp.sum(current_gumbel * near_zero_mask)
-#         should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
-        
-#         # 混合新旧采样 #将混合模式进行了修改
-#         # new_gumbel = (1 - should_reroll) * current_gumbel + should_reroll * gumbel
-#         new_gumbel = should_reroll * current_gumbel + (1-should_reroll) * gumbel
-#         new_gumbel = new_gumbel / (jnp.sum(new_gumbel, axis=-1, keepdims=True) + 1e-8)
-        
-#         # 更新重选计数（只累计实际发生的重选）
-#         new_reroll = reroll_count + jnp.clip(should_reroll, 0, 1)
-        
-#         # 返回更新后的状态
-#         return (new_reroll, new_gumbel, key), should_reroll
-    
-#     initial_state = (jnp.array(1.0), initial_gumbel, subkey)
-    
-#     # 执行扫描，同时跟踪收敛情况
-#     (total_rerolls, final_gumbel, key), reroll_probs = jax.lax.scan(
-#         body_fn, 
-#         initial_state, 
-#         jnp.arange(max_rerolls)
-#     )
-    
-#     return final_gumbel, total_rerolls, key
-
-
 @partial(jax.jit, static_argnames=('tau','max_rerolls','zero_threshold','k'))   
-def collapse(subkey, probs, max_rerolls=3, zero_threshold=1e-5, k=1000.0, tau=1e-3):
+def collapse(subkey, probs, max_rerolls=3, zero_threshold=-1e5, k=1000.0, tau=1e-3):
     near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs))
-    
-    # 初始采样
     initial_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
     key, subkey = jax.random.split(subkey)
-    
-    # 初始重选概率计算
     chosen_near_zero = jnp.sum(initial_gumbel * near_zero_mask)
     should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
-    
-    # 收敛阈值
     CONVERGENCE_THRESHOLD = 0.01
-    
-    # 循环继续条件：重选概率>阈值
-    def continue_loop(should_reroll):
-        return should_reroll > CONVERGENCE_THRESHOLD
-
-    # 用while_loop实现的重选逻辑
+    # def continue_loop(should_reroll):
+    #     return should_reroll > CONVERGENCE_THRESHOLD
     final_gumbel, total_rerolls, key = jax.lax.cond(
-        continue_loop(should_reroll),
-        # 进入循环：初始重选概率>阈值
+        should_reroll > CONVERGENCE_THRESHOLD,
         true_fun=lambda: full_while_loop(
             subkey, probs, initial_gumbel, near_zero_mask,
-            max_rerolls, zero_threshold, k, tau, should_reroll  # 传入初始重选概率
+            max_rerolls, zero_threshold, k, tau, should_reroll
         ),
-        # 不进入循环：直接返回初始结果
         false_fun=lambda: (initial_gumbel, jnp.array(0.0), subkey)
     )
-     
     return final_gumbel, key
 
 @partial(jax.jit, static_argnames=('max_rerolls','zero_threshold','k','tau'))
@@ -253,8 +147,6 @@ def full_while_loop(
         subkey,          # 随机密钥
         initial_should_reroll  # 初始重选概率（>阈值）
     )
-    
-    # 条件函数：判断是否继续循环
     def cond_fn(state):
         reroll_count, _, _, current_should_reroll = state
         # 继续循环的条件：重选次数<上限 且 重选概率>阈值
@@ -263,27 +155,23 @@ def full_while_loop(
     # 循环体函数：更新状态（执行一次重选）
     def body_fn(state):
         reroll_count, current_gumbel, key, _ = state
-        
-        # 生成新的gumbel采样
         new_gumbel = gumbel_softmax(key, probs, tau=tau, hard=False, axis=-1)
-        # 更新随机密钥
-        key, subkey = jax.random.split(key)
+        new_key, subkey = jax.random.split(key)
         
         # 计算新的重选概率
         chosen_near_zero = jnp.sum(new_gumbel * near_zero_mask)
         new_should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
         
         # 混合新旧采样并归一化
-        # mixed_gumbel = new_should_reroll * new_gumbel + (1 - new_should_reroll) * current_gumbel
-        mixed_gumbel = 0.8 * new_gumbel + 0.2 * current_gumbel
-
+        # mixed_gumbel = 0.8 * new_gumbel + (0.2) * current_gumbel
+        mixed_gumbel = new_gumbel
         mixed_gumbel = mixed_gumbel / (jnp.sum(mixed_gumbel, axis=-1, keepdims=True) + 1e-8)
         
         # 更新重选次数（累计有效重选）
         new_reroll_count = reroll_count + jnp.clip(new_should_reroll, 0, 1)
         
         # 返回更新后的状态
-        return (new_reroll_count, mixed_gumbel, subkey, new_should_reroll)
+        return (new_reroll_count, mixed_gumbel, new_key, new_should_reroll)
     
     # 执行while_loop
     final_state = jax.lax.while_loop(cond_fn, body_fn, initial_state)
@@ -315,38 +203,30 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
 
     # 初始化概率分布
     probs=init_probs
+    collapse_map = jnp.ones(probs.shape[0])
 
 
     should_stop = False
     if plot=="2d":
-        # visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=0)
         visualizer:Visualizer=kwargs.pop("visualizer",None)
         visualizer.add_frame(probs=probs)
     pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles")
-    id_pattern=None
+    collapse_list=[-1]
     while should_stop is False:
-        # 归一化
         norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
         probs = probs / jnp.where(norm == 0, 1.0, norm)
-        # 选择要坍缩的单元（最小熵单元）
-        # print(f"#epoch: {pbar.n}")
         key, subkey = jax.random.split(key)
-        collapse_idx,max_entropy = select_collapse(subkey, probs, tau=1e-3)
-        # collapse_idx, min_entropy = entropy_heap.pop_min()
-        # print(f"max entorpy: {max_entropy}")
-        # if collapse_idx is None or min_entropy < 0.3: #本来是max_entropy
-            # print(f"####entropy reached stop condition with min entropy {min_entropy}####\n")
-        if max_entropy < 0.3: 
-            print(f"####entropy reached stop condition with max entropy {max_entropy}####\n")
+        # collapse_idx, max_entropy, collapse_map = select_collapse(subkey, probs, tau=1e-3,collapse_map=collapse_map,)
+        collapse_idx = select_collapse_by_map(subkey, collapse_map)
+        if jnp.max(collapse_map) < 1: 
+            print(f"####reached stop condition####\n")
             should_stop=True
             break
-        # entropy_heap.mark_collapsed(collapse_idx)
+
         # 获取该单元的邻居
         pbar.update(1)
         neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
-        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs) #邻居所在的方向
-        # print(f"collapse_idx: {collapse_idx}", )
-        # print(f"neighbors: {neighbors}")
+        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs)
 
         # 根据邻居更新坍缩单元格的概率
         neighbors_dirs_opposite_index=[]
@@ -355,35 +235,29 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
             opposite_dire=tileHandler.get_opposite_direction_by_direction(direction)
             neighbors_dirs_opposite_index.append(tileHandler.get_index_by_direction(opposite_dire))
         probs = update_by_neighbors(probs, collapse_idx, neighbors, neighbors_dirs_index,neighbors_dirs_opposite_index, tileHandler.compatibility)
-        # print(f"updated by neighbors: \n{probs}")
-        
         
         # 坍缩选定的单元
         key, subkey = jax.random.split(key)
 
         p_collapsed,  key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=-1e-5, tau=1e-3,k=1000)
-        # print(f"p_collapsed:{p_collapsed}")
         probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
-
+        collapse_list.append(collapse_idx)
+        # 更新map
+        collapse_map = collapse_map.at[collapse_idx].multiply(0)
+        collapse_map = collapse_map.at[neighbors].multiply(10)
         # 更新邻居的概率
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
-        # print(f"updated neighbors: \n{probs}")
-
 
         if plot is not False:
             if plot == '2d':
-                # visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=pbar.n)
                 visualizer.add_frame(probs=probs)
             if plot == "3d":
                 #TODO 3D visualizer here
                 pass
         if pbar.n > pbar.total:
             pbar.set_description_str("fixing high entropy")
-        # print(f"probs: \n{probs}",)
-        # print("epoch end\n")
-        # 然后再计算香农熵选择下一个
     pbar.close()
-    return probs, max_entropy, id_pattern
+    return probs, 0, collapse_list
 
 if __name__ == "__main__":
     from src.utiles.adjacency import build_grid_adjacency
@@ -465,7 +339,8 @@ if __name__ == "__main__":
     figureManager=FigureManager(figsize=(10,10))
     visualizer=Visualizer(tileHandler=tileHandler,points=adj['vertices'],figureManager=figureManager)
     grid= generate_grid_vertices_vectorized(width+1,height+1)
-    probs,max_entropy, _=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
+    probs,max_entropy, collapse_list=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
+    visualizer.collapse_list=collapse_list
     visualizer.draw()
     visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManager,epoch='end')
     pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(width,height)
