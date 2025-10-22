@@ -96,11 +96,14 @@ class SigmaInterpreter:
                 
                 return sigma
             # jax.debug.print("weight: {a}", a=weights)
-            penalty=3
+            p=3
+            q=1
             eps = 1e-3
             Cmin = np.sum(eps*self.C,axis=-3)
-            wm = weights**penalty 
-            C = Cmin + np.einsum("n,nij->ij", wm, (self.C-Cmin))
+            wm = weights**p 
+            # C = Cmin + np.einsum("n,nij->ij", wm, (self.C-Cmin))
+            ramp_factor = wm / (1 + q * (1 - wm))  # 替换SIMP中的wm
+            C = Cmin + np.einsum("n,nij->ij", ramp_factor, (self.C - Cmin))
             return stress_anisotropic(C, u_grad)
 
 

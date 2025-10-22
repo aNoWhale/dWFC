@@ -457,10 +457,10 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     (`ref <https://doi.org/10.1016/j.compstruc.2018.01.008>`_).
     """
     # stop condition
-    tol_obj = optimizationParams.get('tol_obj', 1e-4)
-    tol_design = optimizationParams.get('tol_design', 1e-3)
-    tol_con = optimizationParams.get('tol_con', 1e-3)
-    tol_grad = optimizationParams.get('tol_grad', 1e-4)
+    tol_obj = optimizationParams.get('tol_obj', 1e-2)
+    tol_design = optimizationParams.get('tol_design', 1e-1)
+    tol_con = optimizationParams.get('tol_con', 1e-1)
+    tol_grad = optimizationParams.get('tol_grad', 1e-2)
     min_iters = optimizationParams.get('min_iters', 10)
     J_prev = np.inf
     rho_prev = rho_ini.copy()
@@ -491,7 +491,8 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     mma.setMoveLimit(optimizationParams['movelimit']) 
 
     while loop < optimizationParams['maxIters']:
-        alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
+        np.save(f"data/npy/{loop}",rho)
+        alpha = 0.2 + 0.6 / (1 + np.exp(-3 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
         loop = loop + 1
         print(f"MMA solver...")
         print(f"collapsing...")
@@ -542,14 +543,14 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         mma.registerMMAIter(xval, xold1, xold2)
         rho_mma = xval.reshape(rho.shape)
-        rho = alpha * rho_mma+(1-alpha) * rho_prev #混合
+        rho = alpha * rho_mma+(1-alpha) * rho_prev #混合更新
         end = time.time()
 
         time_elapsed = end - start
 
-        print(f"\nMMA took {time_elapsed} [s]")
+        print(f"MMA took {time_elapsed} [s]")
 
-        print(f'Iter {loop:d}; J {J:.5f}; \nconstraint: \n{vc}')
+        print(f'Iter {loop:d} end; J {J:.5f}; \nconstraint: \n{vc}')
         if loop > min_iters:
             # 目标函数变化
             obj_change = J - J_prev
@@ -562,7 +563,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             
             # 梯度范数
             grad_norm = np.linalg.norm(dJ)
-            print(f"obj_change:{obj_change}\ndesign_change:{design_change}\ncon_violation:{con_violation}\ngrad_norm:{grad_norm}\n**********************")
+            print(f"obj_change:{obj_change}\ndesign_change:{design_change}\ncon_violation:{con_violation}\ngrad_norm:{grad_norm}\n**********************\n\n")
             # 复合停止条件
             if abs(obj_change) < max(1e-6, tol_obj*abs(J_prev)) and \
                (design_change < tol_design) and \

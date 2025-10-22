@@ -7,7 +7,7 @@ project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 import gmsh
 import jax
-jax.config.update('jax_disable_jit', True)
+# jax.config.update('jax_disable_jit', True)
 
 import jax.numpy as jnp
 from functools import partial
@@ -75,12 +75,81 @@ def select_collapse(key, probs, tau=0.03,*args, **kwargs):
 
     return collapse_idx, max_entropy,c_map
 
-def select_collapse_by_map(key,map):
-    wait4collapseIndices = jnp.where( map == jnp.max(map))
-    probs = jnp.ones_like(wait4collapseIndices[0])/len(wait4collapseIndices[0])
-    collapse_probs = gumbel_softmax(key, probs, hard=True, axis=-1, eps=1e-10)
-    collapse_idx = jnp.argmax(collapse_probs)
-    return wait4collapseIndices[0][collapse_idx]
+# @partial(jax.jit, static_argnames=())
+# def select_collapse_by_map(key, map, shape):
+#     wait4collapseIndices = jnp.where( map == jnp.max(map))
+#     probs = jnp.ones_like(wait4collapseIndices[0])/len(wait4collapseIndices[0])
+#     collapse_probs = gumbel_softmax(key, probs, hard=True, axis=-1, eps=1e-10)
+#     collapse_idx = jnp.argmax(collapse_probs)
+#     return wait4collapseIndices[0][collapse_idx]
+
+# @partial(jax.jit, static_argnames=('map_shape',))
+# def select_collapse_by_map(key, map, map_shape):
+#     # 1. 计算最大值和有效掩码（mask=True 表示该位置是候选）
+#     max_val = jnp.max(map)
+#     mask = map == max_val  # 布尔数组，形状 (map_shape[0],)，静态已知
+    
+#     # 2. 生成固定长度的索引数组（无效位置填 -1，形状固定）
+#     all_indices = jnp.nonzero(mask, size=map_shape[0], fill_value=-1)[0]
+    
+#     # 3. 计算有效索引的数量（动态值，用于归一化概率）
+#     valid_count = jnp.sum(mask)
+#     # 避免 valid_count=0 时除以 0（兜底，实际场景中 mask 至少有一个 True）
+#     valid_count = jnp.maximum(valid_count, 1)
+    
+#     # 4. 生成固定长度的概率数组：有效位置=1/valid_count，无效位置=0
+#     # 这里用 mask 做掩码，确保无效位置概率为 0，避免被选中
+#     probs = jnp.where(mask, 1.0 / valid_count, 0.0)
+    
+#     # 5. Gumbel-softmax 选择索引（在固定长度数组上操作，形状静态）
+#     collapse_probs = gumbel_softmax(key, probs, hard=True, axis=-1, eps=1e-10)
+#     selected_pos = jnp.argmax(collapse_probs)  # 选中的是概率数组的位置（静态范围内）
+    
+#     # 6. 取出最终索引，兜底处理（避免极端情况选中 -1）
+#     collapse_idx = all_indices[selected_pos]
+#     # 若选中无效索引（-1），则强制选第一个有效索引（兜底逻辑）
+#     first_valid_idx = jnp.where(mask, jnp.arange(map_shape[0]), map_shape[0])[0]
+#     collapse_idx = jnp.where(collapse_idx == -1, first_valid_idx, collapse_idx)
+    
+#     return collapse_idx
+
+@partial(jax.jit, static_argnames=('shape',))  # shape作为静态参数（编译时已知的元组，如(100,)）
+def select_collapse_by_map(key, map, shape):
+    # 1. 计算最大值和有效掩码（哪些位置是候选索引）
+    max_val = jnp.max(map)
+    mask = map == max_val  # 布尔数组，形状为shape（静态已知）
+    
+    # 2. 获取固定长度的索引数组（无效位置用-1填充，形状与map一致）
+    # 确保索引数组长度固定（shape[0]），满足JIT对静态形状的要求
+    all_indices = jnp.nonzero(mask, size=shape[0], fill_value=-1)[0]  # 一维数组，长度=shape[0]
+    
+    # 3. 计算有效索引的数量（动态值，但不影响数组形状）
+    valid_count = jnp.sum(mask)
+    valid_count = jnp.maximum(valid_count, 1)  # 避免除以0（兜底逻辑）
+    
+    # # 4. 生成固定长度的概率数组：有效位置=1/valid_count，无效位置=0
+    # # 概率数组形状固定（与map一致），JIT可编译
+    # probs = jnp.where(mask, 1.0 / valid_count, 0.0)  # 无效位置概率为0，确保不会被选中
+    
+    # # 5. Gumbel-softmax选择索引（在固定形状数组上操作）
+    # collapse_probs = gumbel_softmax(key, probs, hard=True, axis=-1, eps=1e-10)
+    # selected_pos = jnp.argmax(collapse_probs)  # 选中的是概率数组中的位置（范围在0~shape[0]-1，静态已知）
+    
+    # # 6. 从固定长度索引数组中取结果（安全访问，形状固定）
+    # collapse_idx = all_indices[selected_pos]
+    # 4. 生成随机整数索引（范围[0, valid_count-1]）
+    # 注意：randint的high参数可以是动态值，JIT兼容
+    subkey, key = jax.random.split(key)  # 拆分密钥，避免随机状态重复
+    random_offset = jax.random.randint(subkey, shape=(), minval=0, maxval=valid_count)
+    
+    # 5. 从有效索引中随机选择（利用固定长度数组的前valid_count个元素）
+    collapse_idx = all_indices[random_offset]
+    
+    # 兜底：若极端情况选中无效索引（-1），强制取第一个有效索引
+    first_valid_pos = jnp.argmax(mask)  # 第一个有效索引的位置
+    collapse_idx = jnp.where(collapse_idx == -1, all_indices[first_valid_pos], collapse_idx)
+    
+    return collapse_idx
 
 @partial(jax.jit, static_argnames=())
 def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite_index, compatibility):
@@ -217,7 +286,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         probs = probs / jnp.where(norm == 0, 1.0, norm)
         key, subkey = jax.random.split(key)
         # collapse_idx, max_entropy, collapse_map = select_collapse(subkey, probs, tau=1e-3,collapse_map=collapse_map,)
-        collapse_idx = select_collapse_by_map(subkey, collapse_map)
+        collapse_idx = select_collapse_by_map(subkey, collapse_map, collapse_map.shape)
         if jnp.max(collapse_map) < 1: 
             print(f"####reached stop condition####\n")
             should_stop=True

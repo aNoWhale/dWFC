@@ -32,7 +32,7 @@ from jax_fem.mma import optimize
 from src.fem.SigmaInterpreter import SigmaInterpreter
 from src.WFC.TileHandler import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
-from src.WFC.stableWaveFunctionCollapse import waveFunctionCollapse
+from src.WFC.iterateWaveFunctionCollapse import waveFunctionCollapse
 
 
 # Do some cleaning work. Remove old solution files.
@@ -153,8 +153,8 @@ class Elasticity(Problem):
 # Specify mesh-related information. We use first-order quadrilateral element.
 ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
-Lx, Ly, Lz = 10., 10., 10.
-Nx, Ny, Nz = 10, 10, 10
+Lx, Ly, Lz = 10., 40., 10.
+Nx, Ny, Nz = 10, 40, 10
 if not os.path.exists("data/msh/box.msh"):
     meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type)
 else:
@@ -162,10 +162,11 @@ else:
 mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
 # Define boundary conditions and values.
 def fixed_location(point):
-    return np.isclose(point[2], 0., atol=0.1+1e-5)
+    return np.isclose(point[1], 0., atol=0.1+1e-5)
 
 def load_location(point):
-    return np.isclose(point[2], Lz, atol=0.1+1e-5)
+    return np.logical_and(np.isclose(point[2], 0, atol=1+1e-5),
+                          np.isclose(point[1], Ly, atol=1+1e-5),)
 
 def dirichlet_val(point):
     return 0.
@@ -186,7 +187,7 @@ problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=di
 # Apply the automatic differentiation wrapper.
 # This is a critical step that makes the problem solver differentiable.
 # fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solver_options={'petsc_solver': {}})
-fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {'ksp_type':'tfqmr','pc_type':'lu'}}, adjoint_solver_options={'petsc_solver': {}})
+fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {'ksp_type':'tfqmr','pc_type':'lu'}}, adjoint_solver_options={'petsc_solver': {'ksp_type':'tfqmr','pc_type':'lu'}})
 
 
 # Define the objective function 'J_total(theta)'.
@@ -195,8 +196,9 @@ def J_total(params):
     # J(u(theta), theta)
     sol_list = fwd_pred(params)
     compliance = problem.compute_compliance(sol_list[0])
-    avg_poisson_xz, avg_poisson_yz = problem.compute_poissons_ratio(sol_list[0])
-    jax.debug.print("avg_poisson_xz= {a}\navg_poisson_yz= {b}",a=avg_poisson_xz,b=avg_poisson_yz)
+    # avg_poisson_xz, avg_poisson_yz = problem.compute_poissons_ratio(sol_list[0])
+    # jax.debug.print("avg_poisson_xz= {a}\navg_poisson_yz= {b}",a=avg_poisson_xz,b=avg_poisson_yz)
+    jax.debug.print("compliance= {c}",c=compliance)
     return compliance, sol_list
 
 
@@ -228,22 +230,29 @@ def objectiveHandle(rho):
     return J, dJ
 
 vf0=0.35
-vf1=0.35
-
+# vf1=0.35
+ea = 0.01
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
 numConstraints = 2
 def consHandle(rho, epoch):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
     # dc should have shape (numConstraints, ...)
-    def computeGlobalVolumeConstraint(rho):
-        g = np.mean(rho)/vf1 - 1.
-        return g
+    # def computeGlobalVolumeConstraint(rho):
+    #     g = np.mean(rho)/vf1 - 1.
+    #     return g
     c0, gradc0 = jax.value_and_grad(lambda rho: np.mean(rho[...,0])/vf0 - 1.)(rho)
-    c1, gradc1 = jax.value_and_grad(lambda rho: np.mean(rho[...,1])/vf1 - 1.)(rho)
-
-    c=np.array([c0,c1])
-    gradc=np.array([gradc0,gradc1])
+    # c1, gradc1 = jax.value_and_grad(lambda rho: np.mean(rho[...,1])/vf1 - 1.)(rho)
+    def computeCellMaximumEntropy(rho):
+        cell_max_p = np.max(rho, axis=-1)
+        modified_e = -cell_max_p * np.log2(cell_max_p)+(1-cell_max_p)
+        mean=np.mean(modified_e)
+        ec=mean/ea-1
+        return ec
+    ec, gradea = jax.value_and_grad(computeCellMaximumEntropy)(rho)
+    print(f"ec:{ec}\nc0:{c0}")
+    c=np.array([ec, c0])
+    gradc=np.array([gradea, gradc0])
     print(f"c.shape:{c.shape}")
     print(f"gradc.shape:{gradc.shape}")
     c = c.reshape((-1,))
@@ -256,23 +265,29 @@ wfc=lambda prob, *args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,ar
 optimizationParams = {'maxIters':51, 'movelimit':0.1}
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
 print(f"rho_ini.shape{rho_ini.shape}")
-rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
-np.save("cache/rho_oped",rho_oped)
-print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")
+try:
+    rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
+except Exception as e:
+    # 捕获所有异常，打印错误信息
+    print("something wrong.")
+    print(f"{str(e)}")
+np.save("npy/rho_oped",rho_oped)
+# print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")
 
 # Plot the optimization results.
 obj = onp.array(outputs)
-fig=plt.figure()
+onp.savetxt( "data/csv/poisson_obj.csv", onp.array(obj), delimiter="," )
+
+
+fig=plt.figure(figsize=(12, 5))
 ax=fig.add_subplot(1,2,1)
 ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
-ax.xlabel(r"Optimization step", fontsize=20)
-ax.ylabel(r"Objective value", fontsize=20)
-ax.tick_params(labelsize=20)
-ax.tick_params(labelsize=20)
-np.savetxt( "data/topo_obj.csv", np.array(obj), delimiter="," )
+# ax.xlabel(r"Optimization step", fontsize=20)
+# ax.ylabel(r"Objective value", fontsize=20)
+# ax.tick_params(labelsize=20)
+# ax.tick_params(labelsize=20)
 
 ax=fig.add_subplot(1,2,2)
-ax.plot(onp.arange(len(J_list))+1,J_list,linestyle="-", linewidth=2, color='black')
-np.savetxt( "data/topo_J.csv", np.array(J_list), delimiter="," )
-plt.savefig("data/topo.tiff")
+
+plt.savefig("data/poisson.tiff")
 plt.show()

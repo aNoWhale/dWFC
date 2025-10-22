@@ -11,3 +11,8 @@ data/img/**.jpg
 **.stp
 **.vtu
 **.msh
+**.csv
+**.tiff
+**.npy
+cache
+

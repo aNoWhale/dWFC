@@ -362,6 +362,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         key, subkey = jax.random.split(key)
 
         p_collapsed,  key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=-1e-5, tau=1e-3,k=1000)
+        key, subkey = jax.random.split(key)
         # print(f"p_collapsed:{p_collapsed}")
         probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
 
