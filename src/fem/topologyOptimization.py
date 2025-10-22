@@ -276,7 +276,7 @@ np.save("npy/rho_oped",rho_oped)
 
 # Plot the optimization results.
 obj = onp.array(outputs)
-onp.savetxt( "data/csv/poisson_obj.csv", onp.array(obj), delimiter="," )
+onp.savetxt( "data/csv/topo_obj.csv", onp.array(obj), delimiter="," )
 
 
 fig=plt.figure(figsize=(12, 5))
@@ -289,5 +289,5 @@ ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black'
 
 ax=fig.add_subplot(1,2,2)
 
-plt.savefig("data/poisson.tiff")
+plt.savefig("data/topo_obj.tiff")
 plt.show()
