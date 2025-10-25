@@ -7,7 +7,7 @@ project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 import gmsh
 import jax
-# jax.config.update('jax_disable_jit', True)
+jax.config.update('jax_disable_jit', True)
 
 import jax.numpy as jnp
 from functools import partial
@@ -30,14 +30,37 @@ from src.WFC.FigureManager import FigureManager
 
 
 
+# # @jax.jit
+# def get_neighbors(csr, index):
+#     """获取指定索引的邻居列表"""
+#     start = csr['row_ptr'][index]
+#     end = csr['row_ptr'][index + 1]
+#     neighbors = csr['col_idx'][start:end]
+#     neighbors_dirs = csr['directions'][start:end]
+#     return neighbors, neighbors_dirs
+
+
 # @jax.jit
-def get_neighbors(csr, index):
-    """获取指定索引的邻居列表"""
-    start = csr['row_ptr'][index]
-    end = csr['row_ptr'][index + 1]
-    neighbors = csr['col_idx'][start:end]
-    neighbors_dirs = csr['directions'][start:end]
-    return neighbors, neighbors_dirs
+def batch_get_neighbors(vmap_adj, batch_indices):
+    """
+    批量获取单元的邻居和方向（兼容vmap）。
+    适配 convert_adj_to_vmap_compatible 转换后的邻居矩阵结构。
+    
+    参数:
+        vmap_adj: 经 convert_adj_to_vmap_compatible 转换后的邻居矩阵
+        batch_indices: 批量单元索引（JAX数组，形状[batch_size]）
+    
+    返回:
+        neighbors_batch: 批量邻居索引（形状[batch_size, max_neighbors]）
+        directions_batch: 批量方向整数（形状[batch_size, max_neighbors]），对应dir_map中的整数
+    """
+    # 从转换后的adj中获取整数形式的邻居和方向（修正键名以匹配转换结果）
+    neighbors_batch = vmap_adj['padded_neighbors'][batch_indices]  # 邻居索引（整数）
+    directions_batch = vmap_adj['padded_dirs_int'][batch_indices]  # 方向整数（对应dir_map）
+    
+    return neighbors_batch, directions_batch
+
+
 
 @partial(jax.jit, static_argnames=('threshold',))
 def collapsed_mask(probabilities, threshold=0.99):
@@ -83,35 +106,55 @@ def select_collapse(key, probs, tau=0.03,*args, **kwargs):
 #     collapse_idx = jnp.argmax(collapse_probs)
 #     return wait4collapseIndices[0][collapse_idx]
 
-# @partial(jax.jit, static_argnames=('map_shape',))
-# def select_collapse_by_map(key, map, map_shape):
-#     # 1. 计算最大值和有效掩码（mask=True 表示该位置是候选）
-#     max_val = jnp.max(map)
-#     mask = map == max_val  # 布尔数组，形状 (map_shape[0],)，静态已知
+@partial(jax.jit, static_argnames=('batch_size', 'shape'))
+def select_batch_collapse_by_map(key, map, shape, batch_size=16):
+    """批量选择高优先级坍缩单元（按map最大值筛选，一次选batch_size个）"""
+    max_val = jnp.max(map)
+    mask = map == max_val  # 高优先级单元掩码
     
-#     # 2. 生成固定长度的索引数组（无效位置填 -1，形状固定）
-#     all_indices = jnp.nonzero(mask, size=map_shape[0], fill_value=-1)[0]
+    # 1. 获取所有高优先级单元索引（用-1填充无效位置，确保形状固定）
+    all_candidates = jnp.nonzero(mask, size=shape[0], fill_value=-1)[0]
+    valid_count = jnp.sum(mask)
+    valid_count = jnp.maximum(valid_count, 1)  # 避免除以0
     
-#     # 3. 计算有效索引的数量（动态值，用于归一化概率）
-#     valid_count = jnp.sum(mask)
-#     # 避免 valid_count=0 时除以 0（兜底，实际场景中 mask 至少有一个 True）
-#     valid_count = jnp.maximum(valid_count, 1)
+    # 2. 随机选batch_size个（从有效候选中采样，重复也不影响，后续过滤已坍缩）
+    subkey, key = jax.random.split(key)
+    random_offsets = jax.random.randint(subkey, shape=(batch_size,), minval=0, maxval=valid_count)
+    batch_indices = all_candidates[random_offsets]
     
-#     # 4. 生成固定长度的概率数组：有效位置=1/valid_count，无效位置=0
-#     # 这里用 mask 做掩码，确保无效位置概率为 0，避免被选中
-#     probs = jnp.where(mask, 1.0 / valid_count, 0.0)
+    # 3. 过滤无效索引（-1），用第一个有效索引兜底
+    first_valid = jnp.argmax(mask)
+    batch_indices = jnp.where(batch_indices == -1, first_valid, batch_indices)
     
-#     # 5. Gumbel-softmax 选择索引（在固定长度数组上操作，形状静态）
-#     collapse_probs = gumbel_softmax(key, probs, hard=True, axis=-1, eps=1e-10)
-#     selected_pos = jnp.argmax(collapse_probs)  # 选中的是概率数组的位置（静态范围内）
+    return batch_indices
+
+@partial(jax.jit, static_argnames=('batch_size', 'shape'))
+def select_batch_collapse(key, collapse_map, adj_csr, shape, batch_size=8):
+    # 1. 选Top-K个高优先级单元（K是batch_size的2倍，留足筛选空间）
+    topk_vals, topk_indices = jax.lax.top_k(collapse_map, k=batch_size * 2)
     
-#     # 6. 取出最终索引，兜底处理（避免极端情况选中 -1）
-#     collapse_idx = all_indices[selected_pos]
-#     # 若选中无效索引（-1），则强制选第一个有效索引（兜底逻辑）
-#     first_valid_idx = jnp.where(mask, jnp.arange(map_shape[0]), map_shape[0])[0]
-#     collapse_idx = jnp.where(collapse_idx == -1, first_valid_idx, collapse_idx)
+    # 2. 构建非邻居掩码：确保选中的单元彼此不是邻居
+    def is_non_neighbor(idx1, idx2):
+        # 检查idx1是否在idx2的邻居列表中
+        start = adj_csr['row_ptr'][idx2]
+        end = adj_csr['row_ptr'][idx2 + 1]
+        neighbors = jax.lax.dynamic_slice(adj_csr['col_idx'], (start,), (end-start,))
+        return jnp.all(neighbors != idx1)
     
-#     return collapse_idx
+    # 3. 筛选出互不相邻的单元，组成最终批量
+    batch_indices = []
+    for idx in topk_indices:
+        if len(batch_indices) >= batch_size:
+            break
+        # 检查当前idx是否与已选单元都非邻居
+        non_conflict = jnp.all(jnp.array([is_non_neighbor(idx, b_idx) for b_idx in batch_indices]))
+        if non_conflict:
+            batch_indices.append(idx)
+    
+    # 4. 不足batch_size时用-1填充（后续处理跳过）
+    batch_indices = jnp.array(batch_indices + [-1]*(batch_size - len(batch_indices)))
+    return batch_indices
+
 
 @partial(jax.jit, static_argnames=('shape',))  # shape作为静态参数（编译时已知的元组，如(100,)）
 def select_collapse_by_map(key, map, shape):
@@ -170,6 +213,34 @@ def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite
     p = p / jnp.where(norm == 0, 1.0, norm)
     return probs.at[collapse_id].set(p)
 
+@partial(jax.jit, static_argnames=())
+def batch_update_by_neighbors(probs, collapse_ids, neighbors_batch, dirs_index_batch, dirs_opposite_index_batch, compatibility):
+    """批量更新多个坍缩单元的概率（基于各自邻居）"""
+    def update_single(collapse_id, neighbors, dirs_index, dirs_opposite_index):
+        """单个单元的更新逻辑（复用原逻辑）"""
+        def update_neighbor_prob(neighbor_prob, opposite_dire_index):
+            p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob)
+            norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
+            return p_c / jnp.where(norm == 0, 1.0, norm)
+        
+        neighbor_probs = probs[neighbors]
+        neighbor_probs = jnp.atleast_1d(neighbor_probs)
+        update_factors = jax.vmap(update_neighbor_prob)(neighbor_probs, dirs_opposite_index)
+        cumulative_factor = jnp.prod(update_factors, axis=0)
+        #TODO 或许直接得到factor，再函数外部统一multiply比较好,但是因为是update by neighbors 所以应该影响不大
+        p = probs[collapse_id] * cumulative_factor
+        norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
+        p = p / jnp.where(norm == 0, 1.0, norm)
+        return p  # 仅返回更新后的概率，不直接set
+    
+    # 用vmap批量处理多个坍缩单元
+    updated_probs_batch = jax.vmap(update_single)(
+        collapse_ids, neighbors_batch, dirs_index_batch, dirs_opposite_index_batch
+    )
+    # 批量更新全局概率
+    #TODO 此处应该修改为乘法以应对针对相同单元格的更新？ 如果是这样的话就要加一步归一化
+    return probs.at[collapse_ids].set(updated_probs_batch)
+
 @jax.jit
 def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
     def vectorized_update(neighbor_prob, dir_idx):
@@ -181,6 +252,39 @@ def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
     dirs_index=jnp.array(dirs_index)
     updated_probs = jax.vmap(vectorized_update)(probs[neighbors], dirs_index)
     return probs.at[neighbors].set(updated_probs)
+
+@jax.jit
+def batch_update_neighbors(probs, neighbors_batch, dirs_index_batch, p_collapsed_batch, compatibility):
+    """批量更新多个坍缩单元的邻居概率"""
+    def update_single_neighbors(neighbors, dirs_index, p_collapsed):
+        """单个坍缩单元的邻居更新逻辑（复用原逻辑）"""
+        def vectorized_update(neighbor_prob, dir_idx):
+            p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed)
+            p_neigh = jnp.einsum("...i,...i->...i", p_neigh, neighbor_prob)
+            norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
+            p_neigh = p_neigh / jnp.where(norm == 0, 1.0, norm)
+            return jnp.clip(p_neigh[dir_idx], 0, 1)
+        
+        dirs_index = jnp.array(dirs_index)
+        updated_probs = jax.vmap(vectorized_update)(probs[neighbors], dirs_index)
+        return neighbors, updated_probs  # 返回邻居索引和对应更新值
+    
+    # 1. 批量处理每个坍缩单元的邻居更新
+    neighbors_list, updated_probs_list = jax.vmap(update_single_neighbors)(
+        neighbors_batch, dirs_index_batch, p_collapsed_batch
+    )
+
+    # 2. 展平邻居和更新值（处理不同单元的邻居数量差异）
+    flat_neighbors = neighbors_list.reshape(-1)
+    flat_updated = updated_probs_list.reshape(-1, probs.shape[-1])
+    
+    # # 3. 批量更新全局概率（重复邻居会被多次更新，符合WFC逻辑）
+    probs = probs.at[flat_neighbors].multiply(flat_updated)
+    norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
+    probs = probs / jnp.where(norm == 0, 1.0, norm)
+    return probs
+    # return flat_neighbors,flat_updated
+
 
 @partial(jax.jit, static_argnames=('tau','max_rerolls','zero_threshold','k'))   
 def collapse(subkey, probs, max_rerolls=3, zero_threshold=-1e5, k=1000.0, tau=1e-3):
@@ -201,6 +305,16 @@ def collapse(subkey, probs, max_rerolls=3, zero_threshold=-1e5, k=1000.0, tau=1e
         false_fun=lambda: (initial_gumbel, jnp.array(0.0), subkey)
     )
     return final_gumbel, key
+
+@partial(jax.jit, static_argnames=('tau', 'max_rerolls', 'zero_threshold', 'k'))
+def batch_collapse(subkeys, probs_batch, tau=1e-3, max_rerolls=3, zero_threshold=-1e-5, k=1000):
+    """批量坍缩多个单元（每个单元独立坍缩）"""
+    # 用vmap并行调用原collapse函数，每个单元对应一个subkey
+    collapsed_probs, _ = jax.vmap(
+        lambda key, p: collapse(key, p, tau=tau, max_rerolls=max_rerolls, zero_threshold=zero_threshold, k=k)
+    )(subkeys, probs_batch)
+    return collapsed_probs
+
 
 @partial(jax.jit, static_argnames=('max_rerolls','zero_threshold','k','tau'))
 def full_while_loop(
@@ -251,88 +365,103 @@ def full_while_loop(
     return final_gumbel, total_rerolls, key
 
 
-
-def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|str=False,*args,**kwargs)->jnp.ndarray:
-    """a WFC function
-
-    Args:
-        init_probs (array): (n_cells,n_tileTypes)
-        adj_csr (Dict): a dict with neighbor CSR and directions CSR
-        tileHandler (TileHandler): a TileHandler to deal with Tiles
-        plot (bool|str, optional): '2d' or '3d' or False, give out result during the iter whether or not. Defaults to False.
-    
-    Kwargs:
-        points (array): vertices of cells
-
-    Returns:
-        jnp.ndarray: probs (n_cells,n_tileTypes)
-    """
-
+def waveFunctionCollapseBatch(init_probs, adj_csr, tileHandler: TileHandler,vmap_adj=None ,plot: bool | str = False, batch_size=8, *args, **kwargs) -> jnp.ndarray:
     key = jax.random.PRNGKey(0)
-    num_elements = adj_csr['num_elements']
-
-    # 初始化概率分布
-    probs=init_probs
+    num_elements = init_probs.shape[0]
+    probs = init_probs
     collapse_map = jnp.ones(probs.shape[0])
-
-
+    key, subkey = jax.random.split(key)
+    init = jax.random.randint(subkey, shape=(), minval=0, maxval=probs.shape[0])
+    collapse_map = collapse_map.at[init].multiply(10)
     should_stop = False
-    if plot=="2d":
-        visualizer:Visualizer=kwargs.pop("visualizer",None)
+    collapse_list = [-1]  # 记录批量坍缩索引
+    max_neighbors = vmap_adj['max_neighbors']
+    # 初始化可视化（保持原逻辑）
+    if plot == "2d":
+        visualizer: Visualizer = kwargs.pop("visualizer", None)
         visualizer.add_frame(probs=probs)
+    
     pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles")
-    collapse_list=[-1]
-    while should_stop is False:
+    
+    while not should_stop:
+        # 1. 概率归一化（保持原逻辑）
         norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
         probs = probs / jnp.where(norm == 0, 1.0, norm)
-        key, subkey = jax.random.split(key)
-        # collapse_idx, max_entropy, collapse_map = select_collapse(subkey, probs, tau=1e-3,collapse_map=collapse_map,)
-        collapse_idx = select_collapse_by_map(subkey, collapse_map, collapse_map.shape)
-        if jnp.max(collapse_map) < 1: 
-            print(f"####reached stop condition####\n")
-            should_stop=True
-            break
-
-        # 获取该单元的邻居
-        pbar.update(1)
-        neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
-        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs)
-
-        # 根据邻居更新坍缩单元格的概率
-        neighbors_dirs_opposite_index=[]
-        for index in neighbors_dirs_index:
-            direction=tileHandler.get_direction_by_index(index)
-            opposite_dire=tileHandler.get_opposite_direction_by_direction(direction)
-            neighbors_dirs_opposite_index.append(tileHandler.get_index_by_direction(opposite_dire))
-        probs = update_by_neighbors(probs, collapse_idx, neighbors, neighbors_dirs_index,neighbors_dirs_opposite_index, tileHandler.compatibility)
         
-        # 坍缩选定的单元
+        # 2. 批量选择坍缩单元（替换原单单元选择）
         key, subkey = jax.random.split(key)
+        batch_indices = select_batch_collapse_by_map(subkey, collapse_map, collapse_map.shape, batch_size=batch_size)
+        # 过滤已坍缩单元（collapse_map=0的单元跳过）
+        valid_mask = collapse_map[batch_indices] > 0
+        valid_batch = batch_indices[valid_mask]
+        if len(valid_batch) == 0:
+            if jnp.max(collapse_map) < 1:
+                should_stop = True
+            break
+        
+        # 3. 批量获取邻居和方向（用vmap并行处理）
+        neighbors_batch, dirs_index_batch = batch_get_neighbors(vmap_adj, valid_batch)
+        
+        
+        # 5. 批量计算反向方向索引（替换原for循环）
+        def get_opposite_dirs(dirs_index):
+            """单个单元的反向方向计算"""
+            def single_opposite(idx):
+                return tileHandler.get_opposite_index_by_index(idx)
+            return jax.vmap(single_opposite)(dirs_index)
+        dirs_opposite_index_batch = jax.vmap(get_opposite_dirs)(dirs_index_batch)
+        
+        # 6. 批量更新坍缩单元的概率（替换原单单元update_by_neighbors）
+        probs = batch_update_by_neighbors(
+            probs, valid_batch, neighbors_batch, dirs_index_batch, dirs_opposite_index_batch, tileHandler.compatibility
+        )
+        
+        # 7. 批量坍缩单元（替换原单单元collapse）
+        key, subkey = jax.random.split(key)
+        batch_subkeys = jax.random.split(subkey, len(valid_batch))  # 每个单元独立密钥
+        p_collapsed_batch = batch_collapse(
+            batch_subkeys, probs[valid_batch], tau=1e-3, max_rerolls=3, zero_threshold=-1e-5, k=1000
+        )
 
-        p_collapsed,  key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=-1e-5, tau=1e-3,k=1000)
-        probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
-        collapse_list.append(collapse_idx)
-        # 更新map
-        collapse_map = collapse_map.at[collapse_idx].multiply(0)
-        collapse_map = collapse_map.at[neighbors].multiply(10)
-        # 更新邻居的概率
-        probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
+        # 批量更新坍缩后的概率
+        probs = probs.at[valid_batch].set(jnp.clip(p_collapsed_batch, 0, 1))
+        collapse_list.extend(valid_batch.tolist())  # 记录批量索引
+        
+        # 8. 批量更新collapse_map（标记已坍缩+提升邻居优先级）
+        collapse_map = collapse_map.at[valid_batch].multiply(0)  # 标记已坍缩
 
-        if plot is not False:
-            if plot == '2d':
-                visualizer.add_frame(probs=probs)
-            if plot == "3d":
-                #TODO 3D visualizer here
-                pass
-        if pbar.n > pbar.total:
+        flat_neighbors = neighbors_batch.reshape(-1)
+        
+        # unique_neighbors = jnp.unique(flat_neighbors) # 展平邻居并去重，避免重复更新
+        collapse_map = collapse_map.at[flat_neighbors].multiply(10)  # 提升邻居优先级
+        
+        # 9. 批量更新邻居概率（替换原单单元update_neighbors）
+        probs = batch_update_neighbors(
+            probs, neighbors_batch, dirs_index_batch, p_collapsed_batch, tileHandler.compatibility
+        )
+        # probs = probs.at[neighbors].multiply(update_factors)
+        
+        # 10. 可视化和进度条更新（适配批量）
+        if plot == '2d':
+            visualizer.add_frame(probs=probs)
+        pbar.update(len(valid_batch))  # 按批量大小更新进度
+        
+        # 停止条件：所有单元已坍缩
+        if jnp.max(collapse_map) < 1:
+            should_stop = True
+            break
+        if pbar.n >= pbar.total:
             pbar.set_description_str("fixing high entropy")
+    
     pbar.close()
     return probs, 0, collapse_list
 
+
+
 if __name__ == "__main__":
     from src.utiles.adjacency import build_grid_adjacency
-    height = 10
-    width = 10
+    height = 5
+    width = 5
     adj=build_grid_adjacency(height=height, width=width, connectivity=4)
 
     # from src.utiles.generateMsh import generate_cube_hex_mesh
@@ -352,7 +481,7 @@ if __name__ == "__main__":
     # from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
     # adj = build_hex8_adjacency_with_meshio(f'data/msh/{msh_name}')
 
-    tileHandler = TileHandler(typeList=['a','b','c','d','e'],direction=(('up',"down"),("left","right"),))
+    tileHandler = TileHandler(typeList=['a','b','c','d','e'],direction=(('up',"down"),("left","right"),), direction_map={"up": 0, "down": 2, "left": 3, "right": 1})
     from src.dynamicGenerator.TileImplement.Dimension2.LinePath import LinePath
     tileHandler.register(typeName='a',class_type=LinePath(['da-bc','cen-cd'],color='blue'))
     tileHandler.register(typeName='b',class_type=LinePath(['ab-cd','cen-da'],color='green'))
@@ -410,8 +539,11 @@ if __name__ == "__main__":
     figureManager=FigureManager(figsize=(10,10))
     visualizer=Visualizer(tileHandler=tileHandler,points=adj['vertices'],figureManager=figureManager)
     grid= generate_grid_vertices_vectorized(width+1,height+1)
-    probs,max_entropy, collapse_list=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
-    wfc = lambda p:waveFunctionCollapse(p,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
+
+    from src.WFC.GPUTools.batchAdjCSR import convert_adj_to_vmap_compatible
+    vmap_adj=convert_adj_to_vmap_compatible(adj)
+    probs,max_entropy, collapse_list=waveFunctionCollapseBatch(init_probs,adj,tileHandler, vmap_adj=vmap_adj,batch_size=1,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
+    wfc = lambda p:waveFunctionCollapseBatch(p,adj,tileHandler,vmap_adj=vmap_adj,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
     def loss_fn(init_probs):
             probs, _, collapse_list = wfc(init_probs)
             cell_max_p = jnp.max(probs, axis=-1) + 1e-8

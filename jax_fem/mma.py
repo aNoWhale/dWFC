@@ -20,12 +20,15 @@ from typing import Callable
 from jax import config
 config.update("jax_enable_x64", True)
 
-density_filtering = False
-sensitivity_filtering = True
 
-def compute_filter_kd_tree(fe):
+
+def compute_filter_kd_tree(fe,r_factor=1.5):
     """This function is created by Tianju. Not from the original code.
     We use k-d tree algorithm to compute the filter.
+    r_factor <1: nothing but itself included,
+    r_factor =1: direct nearby cells included,
+    r_factor = sqrt(3) surround included,
+    r_factor >2 more included.
     """
     cell_centroids = np.mean(np.take(fe.points, fe.cells, axis=0), axis=1)
     flex_num_cells = len(fe.flex_inds)
@@ -35,7 +38,7 @@ def compute_filter_kd_tree(fe):
     avg_elem_V = V/fe.num_cells
 
     avg_elem_size = avg_elem_V**(1./fe.dim)
-    rmin = 1.5*avg_elem_size
+    rmin = r_factor*avg_elem_size
 
     kd_tree = scipy.spatial.KDTree(flex_cell_centroids)
     I = []
@@ -457,18 +460,25 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     (`ref <https://doi.org/10.1016/j.compstruc.2018.01.008>`_).
     """
     # stop condition
-    tol_obj = optimizationParams.get('tol_obj', 1e-2)
+    tol_obj = optimizationParams.get('tol_obj', 1e-3)
     tol_design = optimizationParams.get('tol_design', 1e-1)
     tol_con = optimizationParams.get('tol_con', 1e-1)
     tol_grad = optimizationParams.get('tol_grad', 1e-2)
     min_iters = optimizationParams.get('min_iters', 10)
+    density_filtering_1 = optimizationParams.get('density_filtering_1',False)
+    density_filtering_2 = optimizationParams.get('density_filtering',False)
+
+    sensitivity_filtering = optimizationParams.get('sensitivity_filtering',True)
+
     J_prev = np.inf
     rho_prev = rho_ini.copy()
     rho = rho_ini
     alpha = 1.0
     J_list=[]
 
-    H, Hs = compute_filter_kd_tree(fe)
+    H_r, Hs_r = compute_filter_kd_tree(fe,r_factor = 1.5)
+    ft_rough = {'H':H_r, 'Hs':Hs_r}
+    H, Hs = compute_filter_kd_tree(fe,r_factor = 1)
     ft = {'H':H, 'Hs':Hs}
 
     loop = 0
@@ -492,37 +502,48 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
     while loop < optimizationParams['maxIters']:
         np.save(f"data/npy/{loop}",rho)
-        alpha = 0.2 + 0.6 / (1 + np.exp(-3 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
+        alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
+        # alpha = 1
         loop = loop + 1
         print(f"MMA solver...")
         print(f"collapsing...")
         print(f"rho.shape: {rho.shape}")
-        prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum),)
+        # prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum),)
         # prob_collapsed=rho
-        rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+        # rho_c = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
 
-        
-        if density_filtering:
-            rho_physical = applyDensityFilter(ft, rho)
+        #粗过滤
+        if density_filtering_1:
+            rho_rough = applyDensityFilter(ft_rough, rho)
         else:
-            rho_physical = rho
-            
-        J, dJ = objectiveHandle(rho_physical)
-        vc, dvc = consHandle(rho_physical, loop)
+            rho_rough = rho
+
+        prob_collapsed,_,_=WFC(rho_rough.reshape(-1,tileNum),)
+        rho_c = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+
+        #细过滤
+        if density_filtering_2:
+            rho_c_physical = applyDensityFilter(ft, rho_c)
+        else:
+            rho_c_physical = rho_c
+
+
+        J, dJ = objectiveHandle(rho_c_physical)
+        vc, dvc = consHandle(rho_c_physical, loop)
 
         if sensitivity_filtering:
-            dJ, dvc = applySensitivityFilter(ft, rho, dJ, dvc)
+            dJ, dvc = applySensitivityFilter(ft, rho_c_physical, dJ, dvc)
 
         J, dJ = J, dJ.reshape(-1)[:, None]
         vc, dvc = vc[:, None], dvc.reshape(dvc.shape[0], -1)
 
-        print(f"J.shape = {J.shape}")
-        print(f"dJ.shape = {dJ.shape}")
-        print(f"vc.shape = {vc.shape}")
-        print(f"dvc.shape = {dvc.shape}")
+        # print(f"J.shape = {J.shape}")
+        # print(f"dJ.shape = {dJ.shape}")
+        # print(f"vc.shape = {vc.shape}")
+        # print(f"dvc.shape = {dvc.shape}")
 
-        print(f"rho_ini.shape = {rho_ini.shape}")
-        print(f"rho_physical.shape = {rho_physical.shape}")
+        # print(f"rho_ini.shape = {rho_ini.shape}")
+        # print(f"rho_physical.shape = {rho_c_physical.shape}")
         print(f"dJ.max: {np.max(dJ)}")
         print(f"dJ.min: {np.min(dJ)}")
 
@@ -540,6 +561,29 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         xold2 = xold1.copy()
         xold1 = xval.copy()
         xval = xmma.copy()
+        # 目标函数变化
+        obj_change = J - J_prev
+        
+        # 设计变量变化
+        design_change = np.linalg.norm(rho - rho_prev)
+        
+        # 约束满足度
+        con_violation = np.max(vc)
+        
+        # 梯度范数
+        grad_norm = np.linalg.norm(dJ)
+        print("****************************************************")
+        print(f"obj_change:{obj_change};{max(1e-6, tol_obj*abs(J_prev))}\ndesign_change:{design_change};{tol_design}\ncon_violation:{con_violation};{tol_con}\ngrad_norm:{grad_norm};{tol_grad}")
+        
+        
+        if loop > min_iters:
+            if abs(obj_change) < max(1e-6, tol_obj*abs(J_prev)) and \
+               (design_change < tol_design) and \
+               (con_violation <= tol_con) and \
+               (grad_norm < tol_grad):
+                print(f"收敛于迭代 {loop}")
+                break
+
 
         mma.registerMMAIter(xval, xold1, xold2)
         rho_mma = xval.reshape(rho.shape)
@@ -551,26 +595,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print(f"MMA took {time_elapsed} [s]")
 
         print(f'Iter {loop:d} end; J {J:.5f}; \nconstraint: \n{vc}')
-        if loop > min_iters:
-            # 目标函数变化
-            obj_change = J - J_prev
-            
-            # 设计变量变化
-            design_change = np.linalg.norm(rho - rho_prev)
-            
-            # 约束满足度
-            con_violation = np.max(vc)
-            
-            # 梯度范数
-            grad_norm = np.linalg.norm(dJ)
-            print(f"obj_change:{obj_change}\ndesign_change:{design_change}\ncon_violation:{con_violation}\ngrad_norm:{grad_norm}\n**********************\n\n")
-            # 复合停止条件
-            if abs(obj_change) < max(1e-6, tol_obj*abs(J_prev)) and \
-               (design_change < tol_design) and \
-               (con_violation <= tol_con) and \
-               (grad_norm < tol_grad):
-                print(f"收敛于迭代 {loop}")
-                break
+        print("****************************************************")
         J_prev = J
         rho_prev = rho.copy()
 

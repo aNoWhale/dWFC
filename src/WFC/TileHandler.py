@@ -23,6 +23,8 @@ class TileHandler:
         directionPair:Tuple[Tuple[str,str]] = kwargs.pop('direction',None)
         self.typeList = kwargs.pop('typeList',[]) # every tile type will be saved here
         self.oppositeDirection:Dict[str,str] = {}
+        self.direction_map=kwargs.pop("direction_map",{})
+        self.reverse_direction_map = {v: k for k, v in self.direction_map.items()}  # 整数→字符串反向映射
 
         directionList=[]
         if directionPair is not None:
@@ -77,7 +79,10 @@ class TileHandler:
 
     @property
     def compatibility(self):
-        return jnp.array(self._compatibility)
+        return self._compatibility
+    
+    def constantlize_compatibility(self):
+        self._compatibility = jnp.array(self._compatibility)
 
 
     def get_name_by_index(self, index: int) -> str:
@@ -108,6 +113,11 @@ class TileHandler:
         :param direction: 方向名称或方向名称列表
         :return: 方向索引或索引列表
         """
+
+        if isinstance(direction, (int, jnp.integer)):
+            direction = self.reverse_direction_map[dir_val]
+        else:
+            direction = direction  # 若已是字符串则直接使用
         # 处理单个方向的情况
         if isinstance(direction, str):
             try:
@@ -163,6 +173,7 @@ class TileHandler:
     def pattern_to_names(self, pattern) -> np.ndarray:
         name_array = np.array(self.typeList)
         return name_array[pattern]
+
 
 
 if __name__ == '__main__':

@@ -262,7 +262,9 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 wfc=lambda prob, *args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,args,kwargs)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':51, 'movelimit':0.1}
+optimizationParams = {'maxIters':51, 'movelimit':0.3, 'density_filtering_1':True, 'density_filtering_2':True}
+
+
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
 print(f"rho_ini.shape{rho_ini.shape}")
 try:
@@ -271,7 +273,8 @@ except Exception as e:
     # 捕获所有异常，打印错误信息
     print("something wrong.")
     print(f"{str(e)}")
-np.save("npy/rho_oped",rho_oped)
+
+np.save("data/npy/rho_oped",rho_oped)
 # print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")
 
 # Plot the optimization results.
