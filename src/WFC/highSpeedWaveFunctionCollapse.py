@@ -195,8 +195,8 @@ def select_collapse_by_map(key, map, shape):
     
     return collapse_idx
 
-@partial(jax.jit, static_argnames=())
-def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite_index, compatibility):
+@partial(jax.jit, static_argnames=("tileNum",))
+def update_by_neighbors(probs, collapse_id, neighbors, tileNum, dirs_opposite_index, compatibility):
     def update_single(neighbor_prob,opposite_dire_index):
         p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
         norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
@@ -213,20 +213,21 @@ def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite
     p = p / jnp.where(norm == 0, 1.0, norm)
     return probs.at[collapse_id].set(p)
 
-@partial(jax.jit, static_argnames=())
-def batch_update_by_neighbors(probs, collapse_ids, neighbors_batch, dirs_index_batch, dirs_opposite_index_batch, compatibility):
+@partial(jax.jit, static_argnames=("tileNum",))
+def batch_update_by_neighbors(probs, collapse_ids, neighbors_batch, tileNum, dirs_opposite_index_batch, compatibility):
     """批量更新多个坍缩单元的概率（基于各自邻居）"""
-    def update_single(collapse_id, neighbors, dirs_index, dirs_opposite_index):
+    def update_single(collapse_id, neighbors, tileNum, dirs_opposite_index):
         """单个单元的更新逻辑（复用原逻辑）"""
-        def update_neighbor_prob(neighbor_prob, opposite_dire_index):
+        def update_neighbor_prob(neighbor, opposite_dire_index):
+            neighbor_prob=probs[neighbor]
             p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob)
             norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
-            return p_c / jnp.where(norm == 0, 1.0, norm)
-        
-        neighbor_probs = probs[neighbors]
-        neighbor_probs = jnp.atleast_1d(neighbor_probs)
-        update_factors = jax.vmap(update_neighbor_prob)(neighbor_probs, dirs_opposite_index)
+            p = p_c / jnp.where(norm == 0, 1.0, norm)
+            return p
+        neighbors = jnp.atleast_1d(neighbors)
+        update_factors = jax.vmap(update_neighbor_prob)(neighbors, dirs_opposite_index)
         cumulative_factor = jnp.prod(update_factors, axis=0)
+        # cumulative_factor = jnp.where(neighbors==-1, jnp.ones(probs.shape[-1], cumulative_factor))
         #TODO 或许直接得到factor，再函数外部统一multiply比较好,但是因为是update by neighbors 所以应该影响不大
         p = probs[collapse_id] * cumulative_factor
         norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
@@ -235,11 +236,14 @@ def batch_update_by_neighbors(probs, collapse_ids, neighbors_batch, dirs_index_b
     
     # 用vmap批量处理多个坍缩单元
     updated_probs_batch = jax.vmap(update_single)(
-        collapse_ids, neighbors_batch, dirs_index_batch, dirs_opposite_index_batch
+        collapse_ids, neighbors_batch, jnp.atleast_1d(tileNum), dirs_opposite_index_batch
     )
+
     # 批量更新全局概率
     #TODO 此处应该修改为乘法以应对针对相同单元格的更新？ 如果是这样的话就要加一步归一化
     return probs.at[collapse_ids].set(updated_probs_batch)
+
+
 
 @jax.jit
 def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
@@ -411,9 +415,11 @@ def waveFunctionCollapseBatch(init_probs, adj_csr, tileHandler: TileHandler,vmap
             return jax.vmap(single_opposite)(dirs_index)
         dirs_opposite_index_batch = jax.vmap(get_opposite_dirs)(dirs_index_batch)
         
-        # 6. 批量更新坍缩单元的概率（替换原单单元update_by_neighbors）
+        #TODO 填充的invalid值-1会引发异常行为，应当加入mask
+
+        # 6. 批量更新坍缩单元的概率（替换原单单元update_by_neighbors） 已处理-1
         probs = batch_update_by_neighbors(
-            probs, valid_batch, neighbors_batch, dirs_index_batch, dirs_opposite_index_batch, tileHandler.compatibility
+            probs, valid_batch, neighbors_batch, tileHandler.typeNum, dirs_opposite_index_batch, tileHandler.compatibility
         )
         
         # 7. 批量坍缩单元（替换原单单元collapse）
