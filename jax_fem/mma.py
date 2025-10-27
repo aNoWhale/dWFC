@@ -460,10 +460,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     (`ref <https://doi.org/10.1016/j.compstruc.2018.01.008>`_).
     """
     # stop condition
-    tol_obj = optimizationParams.get('tol_obj', 1e-3)
+    tol_obj = optimizationParams.get('tol_obj', 1e-4)
     tol_design = optimizationParams.get('tol_design', 1e-1)
     tol_con = optimizationParams.get('tol_con', 1e-1)
-    tol_grad = optimizationParams.get('tol_grad', 1e-2)
     min_iters = optimizationParams.get('min_iters', 10)
     density_filtering_1 = optimizationParams.get('density_filtering_1',False)
     density_filtering_2 = optimizationParams.get('density_filtering',False)
@@ -473,7 +472,6 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     J_prev = np.inf
     rho_prev = rho_ini.copy()
     rho = rho_ini
-    alpha = 1.0
     J_list=[]
 
     H_r, Hs_r = compute_filter_kd_tree(fe,r_factor = 1.5)
@@ -571,16 +569,17 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         con_violation = np.max(vc)
         
         # 梯度范数
-        grad_norm = np.linalg.norm(dJ)
         print("****************************************************")
-        print(f"obj_change:{obj_change};{max(1e-6, tol_obj*abs(J_prev))}\ndesign_change:{design_change};{tol_design}\ncon_violation:{con_violation};{tol_con}\ngrad_norm:{grad_norm};{tol_grad}")
+        print(f"{optimizationParams}")
+        print(f"obj_change:{obj_change};{max(1e-6, tol_obj*abs(J_prev))}\n",
+              f"design_change:{design_change};{tol_design}\n",
+              f"con_violation:{con_violation};{tol_con}\n",)
         
         
         if loop > min_iters:
             if abs(obj_change) < max(1e-6, tol_obj*abs(J_prev)) and \
                (design_change < tol_design) and \
-               (con_violation <= tol_con) and \
-               (grad_norm < tol_grad):
+               (con_violation <= tol_con):
                 print(f"收敛于迭代 {loop}")
                 break
 

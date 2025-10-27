@@ -7,7 +7,7 @@ project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 import gmsh
 import jax
-jax.config.update('jax_disable_jit', True)
+# jax.config.update('jax_disable_jit', True)
 
 import jax.numpy as jnp
 from functools import partial
@@ -40,7 +40,7 @@ from src.WFC.FigureManager import FigureManager
 #     return neighbors, neighbors_dirs
 
 
-# @jax.jit
+@jax.jit
 def batch_get_neighbors(vmap_adj, batch_indices):
     """
     批量获取单元的邻居和方向（兼容vmap）。
@@ -106,27 +106,93 @@ def select_collapse(key, probs, tau=0.03,*args, **kwargs):
 #     collapse_idx = jnp.argmax(collapse_probs)
 #     return wait4collapseIndices[0][collapse_idx]
 
-@partial(jax.jit, static_argnames=('batch_size', 'shape'))
-def select_batch_collapse_by_map(key, map, shape, batch_size=16):
-    """批量选择高优先级坍缩单元（按map最大值筛选，一次选batch_size个）"""
-    max_val = jnp.max(map)
-    mask = map == max_val  # 高优先级单元掩码
+# @partial(jax.jit, static_argnames=('batch_size', 'shape', 'max_neighbors'))
+# def select_batch_collapse_by_map(key, map, vmap_adj, shape, batch_size=16, max_neighbors=4):
+#     """批量选择高优先级坍缩单元（按map最大值筛选，一次选batch_size个）"""
+#     max_val = jnp.max(map)
+#     mask = map == max_val  # 高优先级单元掩码
     
-    # 1. 获取所有高优先级单元索引（用-1填充无效位置，确保形状固定）
-    all_candidates = jnp.nonzero(mask, size=shape[0], fill_value=-1)[0]
-    valid_count = jnp.sum(mask)
-    valid_count = jnp.maximum(valid_count, 1)  # 避免除以0
+#     # 1. 获取所有高优先级单元索引（用-1填充无效位置，确保形状固定）
+#     all_candidates = jnp.nonzero(mask, size=shape[0], fill_value=-1)[0]
+#     valid_count = jnp.sum(mask)
+#     valid_count = jnp.maximum(valid_count, 1)  # 避免除以0
     
-    # 2. 随机选batch_size个（从有效候选中采样，重复也不影响，后续过滤已坍缩）
+#     # 2. 随机选batch_size个（从有效候选中采样，重复也不影响，后续过滤已坍缩）
+#     subkey, key = jax.random.split(key)
+#     random_offsets = jax.random.randint(subkey, shape=(batch_size,), minval=0, maxval=valid_count)
+#     batch_indices = all_candidates[random_offsets]
+#     candidates = jnp.unique(batch_indices)
+
+#     # 3. 过滤无效索引（-1），用第一个有效索引兜底
+#     # 或许可以直接使用-1？
+#     # first_valid = jnp.argmax(mask)
+#     # batch_indices = jnp.where(batch_indices == -1, first_valid, batch_indices)
+    
+#     return candidates
+
+@partial(jax.jit, static_argnames=('shape', 'batch_size', 'max_neighbors'))
+def select_batch_collapse_by_map(
+    key, map_arr, vmap_adj, shape, batch_size=16, max_neighbors=4
+):
+     # 1. 获取高优先级有效候选（无-1）
+    max_val = jnp.max(map_arr)
+    mask = map_arr == max_val
+    valid_candidates = jnp.nonzero(mask)[0]
+    valid_count = jnp.maximum(len(valid_candidates), 1)  # 至少1个候选
+    
+    # 2. 采样并去重（候选池大小为batch_size*2）
     subkey, key = jax.random.split(key)
-    random_offsets = jax.random.randint(subkey, shape=(batch_size,), minval=0, maxval=valid_count)
-    batch_indices = all_candidates[random_offsets]
+    offsets = jax.random.randint(subkey, (batch_size * 2,), 0, valid_count)
+    candidates = jnp.unique(valid_candidates[offsets])
+    num_candidates = len(candidates)  # 动态候选数量
     
-    # 3. 过滤无效索引（-1），用第一个有效索引兜底
-    first_valid = jnp.argmax(mask)
-    batch_indices = jnp.where(batch_indices == -1, first_valid, batch_indices)
+    # 3. 批量获取邻居（固定形状[num_candidates, max_neighbors]，含-1填充）
+    neighbors_batch, _ = batch_get_neighbors(vmap_adj, candidates)  # 无需动态切片，保留-1
     
-    return batch_indices
+    # 4. 用lax.scan筛选无重叠邻居的单元
+    init_state = (
+        jnp.full((batch_size,), -1, dtype=jnp.int32),  # 已选中单元
+        jnp.full((batch_size * max_neighbors,), -1, dtype=jnp.int32),  # 已选中的所有邻居（固定长度）
+        jnp.array(0, dtype=jnp.int32)  # 已选数量
+    )
+    
+    def scan_fn(state, i):
+        selected, all_neighbors, count = state
+        candidate = candidates[i]
+        candidate_neigh = neighbors_batch[i]  # 含-1的固定长度邻居数组
+        
+        # 条件1：若已选满，直接跳过
+        if count >= batch_size:
+            return state, None
+        
+        # 过滤候选邻居中的-1（有效邻居）
+        valid_candidate_neigh = candidate_neigh[candidate_neigh != -1]
+        
+        # 过滤已选中邻居中的-1（有效邻居）
+        valid_all_neighbors = all_neighbors[all_neighbors != -1]
+        
+        # 条件2：判断邻居是否重叠
+        has_overlap = jnp.any(jnp.isin(valid_candidate_neigh, valid_all_neighbors))
+        
+        # 不重叠则加入选中列表
+        new_count = jnp.where(has_overlap, count, count + 1)
+        new_selected = selected.at[count].set(jnp.where(has_overlap, selected[count], candidate))
+        
+        # 更新已选中的邻居集合（追加有效邻居，用-1填充剩余位置）
+        neighbor_start = count * max_neighbors
+        new_all_neighbors = all_neighbors.at[neighbor_start:neighbor_start+len(valid_candidate_neigh)].set(
+            jnp.where(has_overlap, all_neighbors[neighbor_start:neighbor_start+len(valid_candidate_neigh)], valid_candidate_neigh)
+        )
+        
+        return (new_selected, new_all_neighbors, new_count), None
+    
+    # 执行扫描（遍历所有候选）
+    final_state, _ = jax.lax.scan(scan_fn, init_state, jnp.arange(num_candidates))
+    selected_indices, _, final_count = final_state
+    
+    # 返回有效选中单元（长度≤batch_size）
+    return selected_indices[:final_count]
+
 
 @partial(jax.jit, static_argnames=('batch_size', 'shape'))
 def select_batch_collapse(key, collapse_map, adj_csr, shape, batch_size=8):
@@ -158,7 +224,7 @@ def select_batch_collapse(key, collapse_map, adj_csr, shape, batch_size=8):
 
 @partial(jax.jit, static_argnames=('shape',))  # shape作为静态参数（编译时已知的元组，如(100,)）
 def select_collapse_by_map(key, map, shape):
-    #TODO 目前仍然不可微，梯度在此处会绕过，即initprobs不会影响坍缩决策
+    #不可微，梯度在此处会绕过，即initprobs不会影响坍缩决策
     # 1. 计算最大值和有效掩码（哪些位置是候选索引）
     max_val = jnp.max(map)
     mask = map == max_val  # 布尔数组，形状为shape（静态已知）
@@ -213,10 +279,10 @@ def update_by_neighbors(probs, collapse_id, neighbors, tileNum, dirs_opposite_in
     p = p / jnp.where(norm == 0, 1.0, norm)
     return probs.at[collapse_id].set(p)
 
-@partial(jax.jit, static_argnames=("tileNum",))
-def batch_update_by_neighbors(probs, collapse_ids, neighbors_batch, tileNum, dirs_opposite_index_batch, compatibility):
+@partial(jax.jit, static_argnames=())
+def batch_update_by_neighbors(probs, collapse_ids, neighbors_batch, dirs_opposite_index_batch, compatibility):
     """批量更新多个坍缩单元的概率（基于各自邻居）"""
-    def update_single(collapse_id, neighbors, tileNum, dirs_opposite_index):
+    def update_single(collapse_id, neighbors, dirs_opposite_index):
         """单个单元的更新逻辑（复用原逻辑）"""
         def update_neighbor_prob(neighbor, opposite_dire_index):
             neighbor_prob=probs[neighbor]
@@ -236,7 +302,7 @@ def batch_update_by_neighbors(probs, collapse_ids, neighbors_batch, tileNum, dir
     
     # 用vmap批量处理多个坍缩单元
     updated_probs_batch = jax.vmap(update_single)(
-        collapse_ids, neighbors_batch, jnp.atleast_1d(tileNum), dirs_opposite_index_batch
+        collapse_ids, neighbors_batch, dirs_opposite_index_batch
     )
 
     # 批量更新全局概率
@@ -370,7 +436,7 @@ def full_while_loop(
     return final_gumbel, total_rerolls, key
 
 
-def waveFunctionCollapseBatch(init_probs, adj_csr, tileHandler: TileHandler,vmap_adj=None ,plot: bool | str = False, batch_size=8, *args, **kwargs) -> jnp.ndarray:
+def waveFunctionCollapseBatch(init_probs, adj_csr, tileHandler: TileHandler,vmap_adj=None ,plot: bool | str = False, batch_size=1, *args, **kwargs) -> jnp.ndarray:
     key = jax.random.PRNGKey(0)
     num_elements = init_probs.shape[0]
     probs = init_probs
@@ -395,7 +461,7 @@ def waveFunctionCollapseBatch(init_probs, adj_csr, tileHandler: TileHandler,vmap
         
         # 2. 批量选择坍缩单元（替换原单单元选择）
         key, subkey = jax.random.split(key)
-        batch_indices = select_batch_collapse_by_map(subkey, collapse_map, collapse_map.shape, batch_size=batch_size)
+        batch_indices = select_batch_collapse_by_map(subkey, collapse_map, vmap_adj, collapse_map.shape[0], batch_size=batch_size, max_neighbors=max_neighbors,)
         # 过滤已坍缩单元（collapse_map=0的单元跳过）
         valid_mask = collapse_map[batch_indices] > 0
         valid_batch = batch_indices[valid_mask]
@@ -420,7 +486,7 @@ def waveFunctionCollapseBatch(init_probs, adj_csr, tileHandler: TileHandler,vmap
 
         # 6. 批量更新坍缩单元的概率（替换原单单元update_by_neighbors） 已处理-1
         probs = batch_update_by_neighbors(
-            probs, valid_batch, neighbors_batch, tileHandler.typeNum, dirs_opposite_index_batch, tileHandler.compatibility
+            probs, valid_batch, neighbors_batch, dirs_opposite_index_batch, tileHandler.compatibility
         )
         
         # 7. 批量坍缩单元（替换原单单元collapse）
@@ -432,14 +498,13 @@ def waveFunctionCollapseBatch(init_probs, adj_csr, tileHandler: TileHandler,vmap
 
         # 批量更新坍缩后的概率
         probs = probs.at[valid_batch].set(jnp.clip(p_collapsed_batch, 0, 1))
-        collapse_list.extend(valid_batch.tolist())  # 记录批量索引
+        collapse_list.extend(jnp.unique(valid_batch).tolist())  # 记录批量索引
         
         # 8. 批量更新collapse_map（标记已坍缩+提升邻居优先级）
         collapse_map = collapse_map.at[valid_batch].multiply(0)  # 标记已坍缩
-
-        flat_neighbors = neighbors_batch.reshape(-1)
         
-        # unique_neighbors = jnp.unique(flat_neighbors) # 展平邻居并去重，避免重复更新
+        unique_neighbors = jnp.unique(neighbors_batch,axis=-2) # 展平邻居并去重，避免重复更新
+        flat_neighbors = unique_neighbors.reshape(-1)
         collapse_map = collapse_map.at[flat_neighbors].multiply(10)  # 提升邻居优先级
         
         # 9. 批量更新邻居概率（替换原单单元update_neighbors）
@@ -467,8 +532,8 @@ def waveFunctionCollapseBatch(init_probs, adj_csr, tileHandler: TileHandler,vmap
 
 if __name__ == "__main__":
     from src.utiles.adjacency import build_grid_adjacency
-    height = 5
-    width = 5
+    height = 10
+    width = 10
     adj=build_grid_adjacency(height=height, width=width, connectivity=4)
 
     # from src.utiles.generateMsh import generate_cube_hex_mesh
@@ -549,7 +614,7 @@ if __name__ == "__main__":
 
     from src.WFC.GPUTools.batchAdjCSR import convert_adj_to_vmap_compatible
     vmap_adj=convert_adj_to_vmap_compatible(adj)
-    probs,max_entropy, collapse_list=waveFunctionCollapseBatch(init_probs,adj,tileHandler, vmap_adj=vmap_adj,batch_size=1,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
+    probs,max_entropy, collapse_list=waveFunctionCollapseBatch(init_probs,adj,tileHandler, vmap_adj=vmap_adj,batch_size=8,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
     wfc = lambda p:waveFunctionCollapseBatch(p,adj,tileHandler,vmap_adj=vmap_adj,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
     def loss_fn(init_probs):
             probs, _, collapse_list = wfc(init_probs)

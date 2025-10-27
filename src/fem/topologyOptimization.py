@@ -30,7 +30,7 @@ from jax_fem.generate_mesh import get_meshio_cell_type, Mesh, rectangle_mesh, bo
 from jax_fem.mma import optimize
 
 from src.fem.SigmaInterpreter import SigmaInterpreter
-from src.WFC.TileHandler import TileHandler
+from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
 from src.WFC.iterateWaveFunctionCollapse import waveFunctionCollapse
 
@@ -175,11 +175,11 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['solid','void','weird'], direction=(('back',"front"),("left","right"),("top","bottom")))
+tileHandler = TileHandler(typeList=['solid','void','weird'], direction=(('back',"front"),("left","right"),("top","bottom")),direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
 tileHandler.setConnectiability(fromTypeName='solid',toTypeName=["void","weird"],direction="isotropy",value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='void', toTypeName="weird", direction="isotropy",value=1,dual=True)
 tileHandler.selfConnectable(typeName=['solid',"void","weird"],value=1)
-
+tileHandler.constantlize_compatibility()
 # Define forward problem.
 problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
                      additional_info=(SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/C",debug=False),))
@@ -262,7 +262,7 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 wfc=lambda prob, *args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,args,kwargs)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':51, 'movelimit':0.3, 'density_filtering_1':True, 'density_filtering_2':True}
+optimizationParams = {'maxIters':51, 'movelimit':1.0, 'density_filtering_1':True, 'density_filtering_2':True}
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum

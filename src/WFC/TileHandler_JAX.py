@@ -7,7 +7,7 @@ import inspect
 from typing import List, Dict, Callable, Tuple, Union
 
 import jax
-jax.config.update('jax_disable_jit', True)
+# jax.config.update('jax_disable_jit', True)
 
 import jax.numpy as jnp
 import numpy as np

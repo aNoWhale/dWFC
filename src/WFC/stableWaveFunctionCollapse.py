@@ -458,6 +458,7 @@ if __name__ == "__main__":
     # tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='up',value=0,dual=True)
     # tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='down',value=0,dual=True)
     # print(f"tileHandler:\n {tileHandler}")
+    tileHandler.constantlize_compatibility()
 
     num_elements = adj['num_elements']
     numTypes = tileHandler.typeNum

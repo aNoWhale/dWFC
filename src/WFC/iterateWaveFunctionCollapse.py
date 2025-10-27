@@ -5,7 +5,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # 获取项目根目录（假设当前文件在 src/WFC 目录下）
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
-import gmsh
+
 import jax
 # jax.config.update('jax_disable_jit', True)
 
@@ -15,15 +15,10 @@ from functools import partial
 
 import tqdm.rich as tqdm
 
-import scipy.sparse
+
 import numpy as np
 
-
-from collections import defaultdict
-from scipy.sparse import csr_matrix
-
 from src.WFC.gumbelSoftmax import gumbel_softmax
-from src.WFC.shannonEntropy import shannon_entropy
 from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.builder import visualizer_2D,Visualizer
 from src.WFC.FigureManager import FigureManager
@@ -39,6 +34,7 @@ def get_neighbors(csr, index):
     neighbors_dirs = csr['directions'][start:end]
     return neighbors, neighbors_dirs
 
+
 @partial(jax.jit, static_argnames=('threshold',))
 def collapsed_mask(probabilities, threshold=0.99):
     """
@@ -48,105 +44,16 @@ def collapsed_mask(probabilities, threshold=0.99):
     max_probs = jnp.max(probabilities, axis=-1, keepdims=True)
     return jax.nn.sigmoid(-1000 * (max_probs - threshold))
 
-@partial(jax.jit, static_argnames=('tau',))
-def select_collapse(key, probs, tau=0.03,*args, **kwargs):
-    """
-    calculate shannon entropy, give out mask by probability, modify shannon entropy by mask, select uncollapsed.
-    """
-    # 1. 计算各单元熵值
-    entropy = shannon_entropy(probs,axis=-1)
-    # 2. 标记已坍缩单元
-    mask = collapsed_mask(probs).squeeze()
-    c_map=kwargs.pop("collapse_map",None)+mask
-    # 3. 调整熵值：已坍缩单元赋予高熵值
-    # 未坍缩: entropy_adj = entropy
-    # 已坍缩: entropy_adj = max_entropy + 1
-    max_entropy = jnp.max(entropy)
-    entropy_adj = entropy * mask + (1 - mask) * (max_entropy + 100.0)
-    entropy_adj = entropy * 1/(c_map+1)
-    # 4. 转换为选择概率（最小熵对应最高概率）
-    selection_logits = -entropy_adj  # 最小熵->最大logits
-    # selection_logits = entropy_adj
-    # 5. 使用Gumbel-Softmax采样位置
-    flat_logits = selection_logits.reshape(-1)
-
-    collapse_probs = gumbel_softmax(key, flat_logits, tau=tau, hard=True, axis=-1, eps=1e-10)
-    collapse_idx = jnp.argmax(collapse_probs)
-
-    return collapse_idx, max_entropy,c_map
-
-# @partial(jax.jit, static_argnames=())
-# def select_collapse_by_map(key, map, shape):
-#     wait4collapseIndices = jnp.where( map == jnp.max(map))
-#     probs = jnp.ones_like(wait4collapseIndices[0])/len(wait4collapseIndices[0])
-#     collapse_probs = gumbel_softmax(key, probs, hard=True, axis=-1, eps=1e-10)
-#     collapse_idx = jnp.argmax(collapse_probs)
-#     return wait4collapseIndices[0][collapse_idx]
-
-# @partial(jax.jit, static_argnames=('map_shape',))
-# def select_collapse_by_map(key, map, map_shape):
-#     # 1. 计算最大值和有效掩码（mask=True 表示该位置是候选）
-#     max_val = jnp.max(map)
-#     mask = map == max_val  # 布尔数组，形状 (map_shape[0],)，静态已知
-    
-#     # 2. 生成固定长度的索引数组（无效位置填 -1，形状固定）
-#     all_indices = jnp.nonzero(mask, size=map_shape[0], fill_value=-1)[0]
-    
-#     # 3. 计算有效索引的数量（动态值，用于归一化概率）
-#     valid_count = jnp.sum(mask)
-#     # 避免 valid_count=0 时除以 0（兜底，实际场景中 mask 至少有一个 True）
-#     valid_count = jnp.maximum(valid_count, 1)
-    
-#     # 4. 生成固定长度的概率数组：有效位置=1/valid_count，无效位置=0
-#     # 这里用 mask 做掩码，确保无效位置概率为 0，避免被选中
-#     probs = jnp.where(mask, 1.0 / valid_count, 0.0)
-    
-#     # 5. Gumbel-softmax 选择索引（在固定长度数组上操作，形状静态）
-#     collapse_probs = gumbel_softmax(key, probs, hard=True, axis=-1, eps=1e-10)
-#     selected_pos = jnp.argmax(collapse_probs)  # 选中的是概率数组的位置（静态范围内）
-    
-#     # 6. 取出最终索引，兜底处理（避免极端情况选中 -1）
-#     collapse_idx = all_indices[selected_pos]
-#     # 若选中无效索引（-1），则强制选第一个有效索引（兜底逻辑）
-#     first_valid_idx = jnp.where(mask, jnp.arange(map_shape[0]), map_shape[0])[0]
-#     collapse_idx = jnp.where(collapse_idx == -1, first_valid_idx, collapse_idx)
-    
-#     return collapse_idx
-
 @partial(jax.jit, static_argnames=('shape',))  # shape作为静态参数（编译时已知的元组，如(100,)）
 def select_collapse_by_map(key, map, shape):
-    #TODO 目前仍然不可微，梯度在此处会绕过，即initprobs不会影响坍缩决策
-    # 1. 计算最大值和有效掩码（哪些位置是候选索引）
     max_val = jnp.max(map)
     mask = map == max_val  # 布尔数组，形状为shape（静态已知）
-    
-    # 2. 获取固定长度的索引数组（无效位置用-1填充，形状与map一致）
-    # 确保索引数组长度固定（shape[0]），满足JIT对静态形状的要求
     all_indices = jnp.nonzero(mask, size=shape[0], fill_value=-1)[0]  # 一维数组，长度=shape[0]
-    
-    # 3. 计算有效索引的数量（动态值，但不影响数组形状）
     valid_count = jnp.sum(mask)
     valid_count = jnp.maximum(valid_count, 1)  # 避免除以0（兜底逻辑）
-    
-    # # 4. 生成固定长度的概率数组：有效位置=1/valid_count，无效位置=0
-    # # 概率数组形状固定（与map一致），JIT可编译
-    # probs = jnp.where(mask, 1.0 / valid_count, 0.0)  # 无效位置概率为0，确保不会被选中
-    
-    # # 5. Gumbel-softmax选择索引（在固定形状数组上操作）
-    # collapse_probs = gumbel_softmax(key, probs, hard=True, axis=-1, eps=1e-10)
-    # selected_pos = jnp.argmax(collapse_probs)  # 选中的是概率数组中的位置（范围在0~shape[0]-1，静态已知）
-    
-    # # 6. 从固定长度索引数组中取结果（安全访问，形状固定）
-    # collapse_idx = all_indices[selected_pos]
-    # 4. 生成随机整数索引（范围[0, valid_count-1]）
-    # 注意：randint的high参数可以是动态值，JIT兼容
     subkey, key = jax.random.split(key)  # 拆分密钥，避免随机状态重复
     random_offset = jax.random.randint(subkey, shape=(), minval=0, maxval=valid_count)
-    
-    # 5. 从有效索引中随机选择（利用固定长度数组的前valid_count个元素）
     collapse_idx = all_indices[random_offset]
-    
-    # 兜底：若极端情况选中无效索引（-1），强制取第一个有效索引
     first_valid_pos = jnp.argmax(mask)  # 第一个有效索引的位置
     collapse_idx = jnp.where(collapse_idx == -1, all_indices[first_valid_pos], collapse_idx)
     
@@ -155,9 +62,11 @@ def select_collapse_by_map(key, map, shape):
 @partial(jax.jit, static_argnames=())
 def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite_index, compatibility):
     def update_single(neighbor_prob,opposite_dire_index):
-        p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
-        norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
-        return p_c / jnp.where(norm == 0, 1.0, norm)
+        # p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
+        p_c = jax.lax.dot(compatibility[opposite_dire_index], neighbor_prob, precision=jax.lax.Precision.HIGH)
+        # norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
+        # p_c = p_c / jnp.where(norm == 0, 1.0, norm)
+        return p_c
 
     neighbor_probs = probs[neighbors]
     neighbor_probs = jnp.atleast_1d(neighbor_probs)
@@ -267,49 +176,41 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
     Returns:
         jnp.ndarray: probs (n_cells,n_tileTypes)
     """
-
     key = jax.random.PRNGKey(0)
-    num_elements = adj_csr['num_elements']
+    num_elements = init_probs.shape[0]
+    key_pool = jax.random.split(key, num_elements*2+1)
 
     # 初始化概率分布
     probs=init_probs
     collapse_map = jnp.ones(probs.shape[0])
-
+    
 
     should_stop = False
     if plot=="2d":
         visualizer:Visualizer=kwargs.pop("visualizer",None)
         visualizer.add_frame(probs=probs)
-    pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles")
+    pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles",mininterval=1.5)
     collapse_list=[-1]
     while should_stop is False:
         norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
         probs = probs / jnp.where(norm == 0, 1.0, norm)
-        key, subkey = jax.random.split(key)
         # collapse_idx, max_entropy, collapse_map = select_collapse(subkey, probs, tau=1e-3,collapse_map=collapse_map,)
-        collapse_idx = select_collapse_by_map(subkey, collapse_map, collapse_map.shape)
+        collapse_idx = select_collapse_by_map(key_pool[pbar.n], collapse_map, collapse_map.shape)
         if jnp.max(collapse_map) < 1: 
             print(f"####reached stop condition####\n")
             should_stop=True
             break
 
         # 获取该单元的邻居
-        pbar.update(1)
         neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
         neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs)
 
         # 根据邻居更新坍缩单元格的概率
-        neighbors_dirs_opposite_index=[]
-        for index in neighbors_dirs_index:
-            direction=tileHandler.get_direction_by_index(index)
-            opposite_dire=tileHandler.get_opposite_direction_by_direction(direction)
-            neighbors_dirs_opposite_index.append(tileHandler.get_index_by_direction(opposite_dire))
+        neighbors_dirs_opposite_index = tileHandler.opposite_dir_array[jnp.array(neighbors_dirs_index)]
         probs = update_by_neighbors(probs, collapse_idx, neighbors, neighbors_dirs_index,neighbors_dirs_opposite_index, tileHandler.compatibility)
         
         # 坍缩选定的单元
-        key, subkey = jax.random.split(key)
-
-        p_collapsed,  key = collapse(subkey=subkey, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=-1e-5, tau=1e-3,k=1000)
+        p_collapsed, _ = collapse(subkey=key_pool[pbar.n+1], probs=probs[collapse_idx], max_rerolls=3, zero_threshold=-1e-5, tau=1e-3,k=1000)
         probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
         collapse_list.append(collapse_idx)
         # 更新map
@@ -324,6 +225,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
             if plot == "3d":
                 #TODO 3D visualizer here
                 pass
+        pbar.update(1)
         if pbar.n > pbar.total:
             pbar.set_description_str("fixing high entropy")
     pbar.close()
@@ -410,6 +312,8 @@ if __name__ == "__main__":
     figureManager=FigureManager(figsize=(10,10))
     visualizer=Visualizer(tileHandler=tileHandler,points=adj['vertices'],figureManager=figureManager)
     grid= generate_grid_vertices_vectorized(width+1,height+1)
+    # from src.WFC.GPUTools.batchAdjCSR import convert_adj_to_vmap_compatible
+    # vmap_adj=convert_adj_to_vmap_compatible(adj)
     probs,max_entropy, collapse_list=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
     wfc = lambda p:waveFunctionCollapse(p,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
     def loss_fn(init_probs):
