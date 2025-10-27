@@ -226,9 +226,9 @@ def batch_update_by_neighbors(probs, collapse_ids, neighbors_batch, tileNum, dir
             return p
         neighbors = jnp.atleast_1d(neighbors)
         update_factors = jax.vmap(update_neighbor_prob)(neighbors, dirs_opposite_index)
+        mask = (neighbors == -1)[:,None]
+        update_factors = jnp.where(mask, 1.0, update_factors)
         cumulative_factor = jnp.prod(update_factors, axis=0)
-        # cumulative_factor = jnp.where(neighbors==-1, jnp.ones(probs.shape[-1], cumulative_factor))
-        #TODO 或许直接得到factor，再函数外部统一multiply比较好,但是因为是update by neighbors 所以应该影响不大
         p = probs[collapse_id] * cumulative_factor
         norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
         p = p / jnp.where(norm == 0, 1.0, norm)
@@ -281,7 +281,8 @@ def batch_update_neighbors(probs, neighbors_batch, dirs_index_batch, p_collapsed
     # 2. 展平邻居和更新值（处理不同单元的邻居数量差异）
     flat_neighbors = neighbors_list.reshape(-1)
     flat_updated = updated_probs_list.reshape(-1, probs.shape[-1])
-    
+    mask = (flat_neighbors == -1)[:,None]
+    flat_updated = jnp.where(mask, 1, flat_updated)
     # # 3. 批量更新全局概率（重复邻居会被多次更新，符合WFC逻辑）
     probs = probs.at[flat_neighbors].multiply(flat_updated)
     norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
