@@ -59,15 +59,55 @@ def select_collapse_by_map(key, map, shape):
     
     return collapse_idx
 
+# @partial(jax.jit, static_argnames=('shape', 'adj_csr'))  # shape作为静态参数（编译时已知的元组，如(100,)）
+# def select_collapse_by_map_batch(collapse_map, adj_csr, batch_size):
+#     topk_vals, topk_indices = jax.lax.top_k(collapse_map, k=batch_size)
+#     exist_neighbor_set=set()
+#     collapse_idx = []
+#     for ind in topk_indices:
+#         neighbors, _ = get_neighbors(adj_csr, ind)
+#         now_neighbors_set = set(np.asarray(nei).item() for nei in neighbors)
+#         now_neighbors_set.add(ind.item())
+#         if not bool(exist_neighbor_set & now_neighbors_set): #如果不具有相同邻居 且不是直接邻居
+#             exist_neighbor_set |= now_neighbors_set
+#             collapse_idx.append(ind)
+
+#     # selected_array = jnp.full((batch_size,), -1, dtype=jnp.int32)
+#     # selected_array = selected_array.at[:len(selected)].set(jnp.array(selected, dtype=jnp.int32))
+#     # return selected_array
+#     return collapse_idx
+
+def select_collapse_by_map_batch(collapse_map, adj_csr, batch_size):
+    # 核心1：筛选非零索引及对应值
+    nonzero_indices = jnp.nonzero(collapse_map)[0]
+    nonzero_values = collapse_map[nonzero_indices]
+    k = min(batch_size, len(nonzero_values))
+    if k == 0:
+        return []
+    
+    # 核心2：取top k非零索引（按值排序）
+    _, topk_in_nonzero = jax.lax.top_k(nonzero_values, k=k)
+    topk_indices = nonzero_indices[topk_in_nonzero]
+    
+    # 核心3：筛选邻居不重叠的索引
+    exist_neighbors = set()
+    collapse_idx = []
+    for ind in topk_indices:
+        neighbors, _ = get_neighbors(adj_csr, ind)
+        curr_neighbors = set(np.asarray(nei).item() for nei in neighbors) | {ind.item()}
+        if not exist_neighbors & curr_neighbors:
+            exist_neighbors.update(curr_neighbors)
+            collapse_idx.append(ind)
+    
+    return collapse_idx
+
+
 @partial(jax.jit, static_argnames=())
 def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite_index, compatibility):
     def update_single(neighbor_prob,opposite_dire_index):
         # p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
         p_c = jax.lax.dot(compatibility[opposite_dire_index], neighbor_prob, precision=jax.lax.Precision.HIGH)
-        # norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
-        # p_c = p_c / jnp.where(norm == 0, 1.0, norm)
         return p_c
-
     neighbor_probs = probs[neighbors]
     neighbor_probs = jnp.atleast_1d(neighbor_probs)
     opposite_indices = jnp.array(dirs_opposite_index)
@@ -78,6 +118,27 @@ def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite
     norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
     p = p / jnp.where(norm == 0, 1.0, norm)
     return probs.at[collapse_id].set(p)
+
+
+@partial(jax.jit, static_argnames=())
+def update_by_neighbors_align(probs, collapse_id, neighbors, dirs_opposite_index,compatibility):
+        """单个单元的更新逻辑（复用原逻辑）"""
+        def update_neighbor_prob(neighbor, opposite_dire_index):
+            neighbor_prob=probs[neighbor]
+            p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob)
+            norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
+            p = p_c / jnp.where(norm == 0, 1.0, norm)
+            return p
+        neighbors = jnp.atleast_1d(neighbors)
+        update_factors = jax.vmap(update_neighbor_prob)(neighbors, dirs_opposite_index)
+        mask = (neighbors == -1)[:,None]
+        update_factors = jnp.where(mask, 1.0, update_factors)
+        cumulative_factor = jnp.prod(update_factors, axis=0)
+        p = probs[collapse_id] * cumulative_factor
+        norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
+        p = p / jnp.where(norm == 0, 1.0, norm)
+        return p.squeeze()  # 仅返回更新后的概率，不直接set
+
 
 @jax.jit
 def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
@@ -91,10 +152,45 @@ def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
     updated_probs = jax.vmap(vectorized_update)(probs[neighbors], dirs_index)
     return probs.at[neighbors].set(updated_probs)
 
+@jax.jit
+def batch_update_neighbors(probs, neighbors_batch, dirs_index_batch, p_collapsed_batch, compatibility):
+    """批量更新多个坍缩单元的邻居概率"""
+    def update_single_neighbors(neighbors, dirs_index, p_collapsed):
+        """单个坍缩单元的邻居更新逻辑（复用原逻辑）"""
+        def vectorized_update(neighbor_prob, dir_idx):
+            p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed)
+            p_neigh = jnp.einsum("...i,...i->...i", p_neigh, neighbor_prob)
+            norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
+            p_neigh = p_neigh / jnp.where(norm == 0, 1.0, norm)
+            return jnp.clip(p_neigh[dir_idx], 0, 1)
+        
+        dirs_index = jnp.array(dirs_index)
+        updated_probs = jax.vmap(vectorized_update)(probs[neighbors], dirs_index)
+        return neighbors, updated_probs  # 返回邻居索引和对应更新值
+    
+    # 1. 批量处理每个坍缩单元的邻居更新
+    neighbors_list, updated_probs_list = jax.vmap(update_single_neighbors)(
+        neighbors_batch, dirs_index_batch, p_collapsed_batch
+    )
+
+    # 2. 展平邻居和更新值（处理不同单元的邻居数量差异）
+    flat_neighbors = neighbors_list.reshape(-1)
+    flat_updated = updated_probs_list.reshape(-1, probs.shape[-1])
+    mask = (flat_neighbors == -1)[:,None]
+    flat_updated = jnp.where(mask, 1, flat_updated)
+    # # 3. 批量更新全局概率（重复邻居会被多次更新，符合WFC逻辑）
+    probs = probs.at[flat_neighbors].multiply(flat_updated)
+    norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
+    probs = probs / jnp.where(norm == 0, 1.0, norm)
+    return probs
+    # return flat_neighbors,flat_updated
+
+
+
 @partial(jax.jit, static_argnames=('tau','max_rerolls','zero_threshold','k'))   
-def collapse(subkey, probs, max_rerolls=3, zero_threshold=-1e5, k=1000.0, tau=1e-3):
-    near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs))
-    initial_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
+def collapse(subkey, prob, max_rerolls=3, zero_threshold=-1e5, k=1000.0, tau=1e-3):
+    near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - prob))
+    initial_gumbel = gumbel_softmax(subkey, prob, tau=tau, hard=False, axis=-1)
     key, subkey = jax.random.split(subkey)
     chosen_near_zero = jnp.sum(initial_gumbel * near_zero_mask)
     should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
@@ -104,12 +200,12 @@ def collapse(subkey, probs, max_rerolls=3, zero_threshold=-1e5, k=1000.0, tau=1e
     final_gumbel, total_rerolls, key = jax.lax.cond(
         should_reroll > CONVERGENCE_THRESHOLD,
         true_fun=lambda: full_while_loop(
-            subkey, probs, initial_gumbel, near_zero_mask,
+            subkey, prob, initial_gumbel, near_zero_mask,
             max_rerolls, zero_threshold, k, tau, should_reroll
         ),
         false_fun=lambda: (initial_gumbel, jnp.array(0.0), subkey)
     )
-    return final_gumbel, key
+    return final_gumbel
 
 @partial(jax.jit, static_argnames=('max_rerolls','zero_threshold','k','tau'))
 def full_while_loop(
@@ -178,7 +274,8 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
     """
     key = jax.random.PRNGKey(0)
     num_elements = init_probs.shape[0]
-    
+    max_neighbors = kwargs.pop("max_neighbors",4)
+    batch_size=kwargs.pop("batch_size",8)
 
     # 初始化概率分布
     probs=init_probs
@@ -189,36 +286,63 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
     if plot=="2d":
         visualizer:Visualizer=kwargs.pop("visualizer",None)
         visualizer.add_frame(probs=probs)
-    pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles",mininterval=1.5)
+    pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles")
     collapse_list=[-1]
     while should_stop is False:
         key, subkey1, subkey2 = jax.random.split(key, 3)
         norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
         probs = probs / jnp.where(norm == 0, 1.0, norm)
         # collapse_idx, max_entropy, collapse_map = select_collapse(subkey, probs, tau=1e-3,collapse_map=collapse_map,)
-        collapse_idx = select_collapse_by_map(subkey1, collapse_map, collapse_map.shape)
+        # collapse_idx = select_collapse_by_map(subkey1, collapse_map, collapse_map.shape)
+        collapse_idx_list = select_collapse_by_map_batch(collapse_map,adj_csr,batch_size=batch_size)
         if jnp.max(collapse_map) < 1: 
             print(f"####reached stop condition####\n")
             should_stop=True
             break
 
         # 获取该单元的邻居
-        neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
-        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs)
+        neighbors_list =[]
+        neighbors_dirs_index_list = []
+        neighbors_dirs_opposite_index_list = []
+        for cid in collapse_idx_list:
+            neighbors, neighbors_dirs = get_neighbors(adj_csr, cid)
+            neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs)
+            neighbors_list.append(neighbors)
+            neighbors_dirs_index_list.append(neighbors_dirs_index)
+            # 根据邻居更新坍缩单元格的概率
+            neighbors_dirs_opposite_index = tileHandler.opposite_dir_array[jnp.array(neighbors_dirs_index)]
+            neighbors_dirs_opposite_index_list.append(neighbors_dirs_opposite_index)
+        #邻居可能形状不整齐
+        
+        def align_array(input_list, m, fill_value=-1):
+            result = jnp.array([jnp.pad(jnp.array(sub), (0, m - len(sub)), mode='constant', constant_values=-1) for sub in input_list])
+            return result
+        
+        n=len(collapse_idx_list)
+        collapse_array = jnp.array(collapse_idx_list)
+        neighbors_array = align_array(neighbors_list,max_neighbors)
+        neighbors_dirs_index_array = align_array(neighbors_dirs_index_list,max_neighbors)
+        neighbors_dirs_opposite_index_array = align_array(neighbors_dirs_opposite_index_list,max_neighbors)
 
-        # 根据邻居更新坍缩单元格的概率
-        neighbors_dirs_opposite_index = tileHandler.opposite_dir_array[jnp.array(neighbors_dirs_index)]
-        probs = update_by_neighbors(probs, collapse_idx, neighbors, neighbors_dirs_index,neighbors_dirs_opposite_index, tileHandler.compatibility)
+
+        # probs = update_by_neighbors(probs, collapse_idx, neighbors, neighbors_dirs_index,neighbors_dirs_opposite_index, tileHandler.compatibility)
+        p = jax.lax.map(lambda para:update_by_neighbors_align(probs,para[0],para[1],para[2],tileHandler.compatibility), (collapse_array[:,None], neighbors_array,neighbors_dirs_opposite_index_array))
+        # p = update_by_neighbors_align(probs, collapse_idx, neighbors, neighbors_dirs_opposite_index)
+        probs = probs.at[collapse_array].set(p)
         
         # 坍缩选定的单元
-        p_collapsed, _ = collapse(subkey=subkey2, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=-1e-5, tau=1e-3,k=1000)
-        probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
-        collapse_list.append(collapse_idx)
+        subkeys = jax.random.split(subkey2, n)
+        p_collapsed = jax.lax.map(lambda pa: collapse(pa[0],pa[1], max_rerolls=3, zero_threshold=-1e-5, tau=1e-3,k=1000),(subkeys,probs[collapse_array]))
+        # p_collapsed = collapse(subkey=subkey2, prob=probs[collapse_idx], max_rerolls=3, zero_threshold=-1e-5, tau=1e-3,k=1000)
+        probs = probs.at[collapse_array].set(jnp.clip(p_collapsed,0,1))
+
+        collapse_list.append(collapse_idx_list)
         # 更新map
-        collapse_map = collapse_map.at[collapse_idx].multiply(0)
-        collapse_map = collapse_map.at[neighbors].multiply(10)
+        collapse_map = collapse_map.at[collapse_array].multiply(0)
+        collapse_map = collapse_map.at[neighbors_array].multiply(10)
         # 更新邻居的概率
-        probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
+        # probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
+        probs = batch_update_neighbors(probs,neighbors_array,neighbors_dirs_index_array,p_collapsed, tileHandler.compatibility)
 
         if plot is not False:
             if plot == '2d':
@@ -226,7 +350,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
             if plot == "3d":
                 #TODO 3D visualizer here
                 pass
-        pbar.update(1)
+        pbar.update(len(collapse_idx_list))
         if pbar.n > pbar.total:
             pbar.set_description_str("fixing high entropy")
     pbar.close()
@@ -315,8 +439,10 @@ if __name__ == "__main__":
     grid= generate_grid_vertices_vectorized(width+1,height+1)
     # from src.WFC.GPUTools.batchAdjCSR import convert_adj_to_vmap_compatible
     # vmap_adj=convert_adj_to_vmap_compatible(adj)
-    probs,max_entropy, collapse_list=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
-    wfc = lambda p:waveFunctionCollapse(p,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer)
+    probs,max_entropy, collapse_list=waveFunctionCollapse(init_probs,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer,batch_size=128,max_neighbors=4)
+
+
+    wfc = lambda p:waveFunctionCollapse(p,adj,tileHandler,plot='2d',points=adj['vertices'],figureManger=figureManager,visualizer=visualizer,batch_size=1,max_neighbors=4)
     def loss_fn(init_probs):
             probs, _, collapse_list = wfc(init_probs)
             cell_max_p = jnp.max(probs, axis=-1) + 1e-8

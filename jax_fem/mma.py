@@ -465,7 +465,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     tol_con = optimizationParams.get('tol_con', 1e-1)
     min_iters = optimizationParams.get('min_iters', 10)
     density_filtering_1 = optimizationParams.get('density_filtering_1',False)
-    density_filtering_2 = optimizationParams.get('density_filtering',False)
+    density_filtering_2 = optimizationParams.get('density_filtering_2',False) #之前这个一直是false
 
     sensitivity_filtering = optimizationParams.get('sensitivity_filtering',True)
 

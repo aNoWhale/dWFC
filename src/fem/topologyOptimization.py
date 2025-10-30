@@ -73,13 +73,12 @@ class Elasticity(Problem):
             # sig22 = E/(1 + nu)/(1 - nu)*(nu*eps11 + eps22)
             # sig12 = E/(1 + nu)*eps12
             # sigma = np.array([[sig11, sig12], [sig12, sig22]])
-
             return self.sigma(u_grad,weights)
         return stress
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., -1e3])
+            return np.array([0., 0., -1e4])
         return [surface_map]
 
     def set_params(self, params):
@@ -153,8 +152,8 @@ class Elasticity(Problem):
 # Specify mesh-related information. We use first-order quadrilateral element.
 ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
-Lx, Ly, Lz = 10., 40., 10.
-Nx, Ny, Nz = 10, 40, 10
+Lx, Ly, Lz = 10., 40., 40.
+Nx, Ny, Nz = 10, 40, 40
 if not os.path.exists("data/msh/box.msh"):
     meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type)
 else:
@@ -175,7 +174,9 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['solid','void','weird'], direction=(('back',"front"),("left","right"),("top","bottom")),direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+tileHandler = TileHandler(typeList=['solid','void','weird'], 
+                          direction=(('back',"front"),("left","right"),("top","bottom")),
+                          direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
 tileHandler.setConnectiability(fromTypeName='solid',toTypeName=["void","weird"],direction="isotropy",value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='void', toTypeName="weird", direction="isotropy",value=1,dual=True)
 tileHandler.selfConnectable(typeName=['solid',"void","weird"],value=1)
@@ -262,7 +263,7 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 wfc=lambda prob, *args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,args,kwargs)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':51, 'movelimit':1.0, 'density_filtering_1':True, 'density_filtering_2':True}
+optimizationParams = {'maxIters':51, 'movelimit':1.0, 'density_filtering_1':True, 'density_filtering_2':False}
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum

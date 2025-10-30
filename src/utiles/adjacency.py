@@ -164,13 +164,21 @@ def build_grid_adjacency(height, width, connectivity=4):
             row_ptr[current_idx+1] = row_ptr[current_idx] + len(neighbors)
     
     return {
-        'row_ptr': jnp.array(row_ptr, dtype=jnp.int32),
-        'col_idx': jnp.array(col_idx, dtype=jnp.int32),
-        'data': jnp.ones(len(col_idx)),
+        'row_ptr': np.array(row_ptr, dtype=jnp.int32),
+        'col_idx': np.array(col_idx, dtype=jnp.int32),
+        'data': np.ones(len(col_idx)),
         'directions': directions,
         'num_elements': num_elements,
-        'vertices': jnp.array(vertices)  # 添加顶点坐标
+        'vertices': np.array(vertices)  # 添加顶点坐标
     }
+    # return {
+    #     'row_ptr': jnp.array(row_ptr, dtype=jnp.int32),
+    #     'col_idx': jnp.array(col_idx, dtype=jnp.int32),
+    #     'data': jnp.ones(len(col_idx)),
+    #     'directions': directions,
+    #     'num_elements': num_elements,
+    #     'vertices': jnp.array(vertices)  # 添加顶点坐标
+    # }
 
 if __name__ == '__main__':
     # 运行函数
