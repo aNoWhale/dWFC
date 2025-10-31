@@ -80,7 +80,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., -1e4])
+            return np.array([0., 0., -1e5])
         return [surface_map]
 
     def set_params(self, params):
@@ -315,7 +315,7 @@ def consHandle(rho, epoch):
         cell_max_p = np.max(rho, axis=-1)
         modified_e = -cell_max_p * np.log2(cell_max_p)+(1-cell_max_p)
         mean=np.mean(modified_e)
-        ec=mean/ea-1
+        ec=mean/ea
         return ec
     ec, gradea = jax.value_and_grad(computeCellMaximumEntropy)(rho)
     print(f"ec:{ec}\nc0:{c0}")
@@ -330,7 +330,7 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 wfc=lambda prob, *args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,args,kwargs)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':51, 'movelimit':1.0, 'density_filtering_1':True, 'density_filtering_2':False}
+optimizationParams = {'maxIters':51, 'movelimit':1.0, 'density_filtering_1':False, 'density_filtering_2':False}
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum

@@ -460,7 +460,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     (`ref <https://doi.org/10.1016/j.compstruc.2018.01.008>`_).
     """
     # stop condition
-    tol_obj = optimizationParams.get('tol_obj', 1e-4)
+    tol_obj = optimizationParams.get('tol_obj', 1e-5)
     tol_design = optimizationParams.get('tol_design', 1e-1)
     tol_con = optimizationParams.get('tol_con', 1e-1)
     min_iters = optimizationParams.get('min_iters', 10)
