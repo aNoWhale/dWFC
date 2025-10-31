@@ -54,7 +54,8 @@ class Elasticity(Problem):
         # Set up 'self.fe.flex_inds' so that location-specific TO can be realized.
         self.fe = self.fes[0]
         self.fe.flex_inds = np.arange(len(self.fe.cells))
-        self.sigma:SigmaInterpreter = self.additional_info[0]
+        self.sigmaInterpreter:SigmaInterpreter = self.additional_info[0]
+
 
     def get_tensor_map(self):
         def stress(u_grad, weights):
@@ -73,7 +74,8 @@ class Elasticity(Problem):
             # sig22 = E/(1 + nu)/(1 - nu)*(nu*eps11 + eps22)
             # sig12 = E/(1 + nu)*eps12
             # sigma = np.array([[sig11, sig12], [sig12, sig22]])
-            return self.sigma(u_grad,weights)
+            sigma = self.sigmaInterpreter(u_grad,weights)
+            return sigma
         return stress
 
     def get_surface_maps(self):
@@ -109,30 +111,23 @@ class Elasticity(Problem):
     def compute_poissons_ratio(self, sol):
         # 获取位移梯度
         u_grad = self.fe.sol_to_grad(sol)
-        
         # 计算应变张量 (num_cells, num_quads, vec, dim)
         epsilon = 0.5 * (u_grad + u_grad.transpose(0, 1, 3, 2))
-        
         # 提取应变分量
         epsilon_xx = epsilon[..., 0, 0]  # x方向正应变
         epsilon_yy = epsilon[..., 1, 1]  # y方向正应变
         epsilon_zz = epsilon[..., 2, 2]  # z方向正应变（压缩方向）
-        
         # 获取积分权重 (num_cells, num_quads)
         cells_JxW = self.JxW[:, 0, :]
-        
         # 计算单元体积 (num_cells,)
         cell_volumes = np.sum(cells_JxW, axis=1)
-        
         # 计算单元平均应变
         cell_eps_xx = np.sum(epsilon_xx * cells_JxW, axis=1) / cell_volumes
         cell_eps_yy = np.sum(epsilon_yy * cells_JxW, axis=1) / cell_volumes
         cell_eps_zz = np.sum(epsilon_zz * cells_JxW, axis=1) / cell_volumes
-        
         # 计算单元级泊松比
         cell_poisson_xz = -cell_eps_xx / cell_eps_zz
         cell_poisson_yz = -cell_eps_yy / cell_eps_zz
-        
         # 计算全局体积加权平均泊松比
         total_volume = np.sum(cells_JxW)
         avg_poisson_xz = -np.sum(epsilon_xx * cells_JxW) / np.sum(epsilon_zz * cells_JxW)
@@ -147,13 +142,81 @@ class Elasticity(Problem):
         #         'cell_eps_zz': cell_eps_zz
         #     }
         return avg_poisson_xz, avg_poisson_yz
+    # def compute_von_mises(self, sol):
+    #     # 无需重新计算应力，直接调用缓存的self.sigma
+    #     # 注意：需确保在调用此方法前，已通过正向求解触发过compute_stress（即sigma已缓存）
+    #     weights = jax.lax.stop_gradient(self.internal_vars[0]) # (num_cells, num_quads, tiletypes)
+    #     u_grad = jax.lax.stop_gradient(self.fe.sol_to_grad(sol)) # (num_cells, num_quads, vec, dim)
+    #     sigma = np.ones_like(u_grad)
+    #     sigma = jax.lax.stop_gradient(self.sigmaInterpreter(u_grad, weights))  # (num_cells, num_quads, vec, dim, dim)
+    #     # 后续计算与之前一致（应力偏量、冯·米塞斯公式等）
+    #     sigma_tr = np.trace(sigma, axis1=2, axis2=3)
+    #     sigma_spherical = (sigma_tr / self.dim)[..., None, None] * np.eye(self.dim)[None, None, None, :, :]
+    #     s_dev = sigma - sigma_spherical
+    #     vm_gauss = np.sqrt(3. / 2. * np.sum(s_dev **2, axis=(2, 3)))
+        
+    #     # 积分加权求单元平均（复用你的积分逻辑）
+    #     cells_JxW = self.JxW[:, 0, :]
+    #     cell_volumes = np.sum(cells_JxW, axis=1)
+    #     cell_vm = np.sum(vm_gauss * cells_JxW[..., None], axis=1).squeeze(1) / cell_volumes
+    #     total_volume = np.sum(cells_JxW)
+    #     avg_vm = np.sum(vm_gauss * cells_JxW[..., None]) / total_volume
+        
+    #     return {
+    #         'cell_von_mises': cell_vm,
+    #         'avg_von_mises': avg_vm,
+    #         'gauss_von_mises': vm_gauss
+    #     }
 
-
+    def compute_von_mises(self, sol):
+        # 停止梯度：后处理无需梯度跟踪
+        weights = jax.lax.stop_gradient(self.internal_vars[0])  # (num_cells, num_quads, tiletypes)
+        u_grad = jax.lax.stop_gradient(self.fe.sol_to_grad(sol))  # 4维：(num_cells, num_quads, dim, dim)
+        sigma = jax.lax.stop_gradient(self.sigmaInterpreter(u_grad, weights))  # 4维：(num_cells, num_quads, dim, dim)
+        
+        # --------------------------
+        # 关键：适配4维数组的轴索引（0-3）
+        # --------------------------
+        dim = self.dim  # 3（三维问题）
+        
+        # 1. 计算应力张量的迹（最后两维是dim, dim，对应axis1=2, axis2=3）
+        sigma_tr = np.trace(sigma, axis1=2, axis2=3)  # 形状：(num_cells, num_quads)
+        
+        # 2. 应力球张量（扩展维度匹配4维sigma）
+        # 扩展为 (num_cells, num_quads, 1, 1)，与sigma的(dim, dim)广播
+        sigma_spherical = (sigma_tr / dim)[..., None, None] * np.eye(dim)[None, None, :, :]  # 4维：(num_cells, num_quads, dim, dim)
+        
+        # 3. 应力偏量
+        s_dev = sigma - sigma_spherical  # 4维：(num_cells, num_quads, dim, dim)
+        
+        # 4. 高斯点冯·米塞斯应力（对最后两维求和：axis=(2,3)）
+        vm_gauss = np.sqrt(3. / 2. * np.sum(s_dev **2, axis=(2, 3)))  # 形状：(num_cells, num_quads)
+        
+        # --------------------------
+        # 积分加权计算（确保形状匹配）
+        # --------------------------
+        cells_JxW = self.JxW[:, 0, :]  # 形状：(num_cells, num_quads)
+        
+        # 单元体积（对num_quads维度求和：axis=1）
+        cell_volumes = np.sum(cells_JxW, axis=1)  # 形状：(num_cells,)
+        
+        # 单元平均冯·米塞斯应力（对num_quads维度求和：axis=1）
+        cell_vm = np.sum(vm_gauss * cells_JxW, axis=1) / cell_volumes  # 形状：(num_cells,)
+        
+        # 全局平均冯·米塞斯应力
+        total_volume = np.sum(cells_JxW)
+        avg_vm = np.sum(vm_gauss * cells_JxW) / total_volume  # 标量
+        
+        return {
+            'cell_von_mises': cell_vm,
+            'avg_von_mises': avg_vm,
+            'gauss_von_mises': vm_gauss
+        }
 # Specify mesh-related information. We use first-order quadrilateral element.
 ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
-Lx, Ly, Lz = 10., 40., 40.
-Nx, Ny, Nz = 10, 40, 40
+Lx, Ly, Lz = 10., 40., 10.
+Nx, Ny, Nz = 10, 40, 10
 if not os.path.exists("data/msh/box.msh"):
     meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type)
 else:
@@ -211,14 +274,18 @@ def output_sol(params, obj_val,sol_list):
 
     sol = sol_list[0]
     vtu_path = os.path.join(data_path, f'vtk/sol_{output_sol.counter:03d}.vtu')
-    cell_infos=[(f'theta{i}', params[:, i]) for i in range(params.shape[-1])]
+    cell_infos = [(f'theta{i}', params[:, i]) for i in range(params.shape[-1])]
     cell_infos.append( ('all', np.argmax(params,axis=-1)) )
+    mises = problem.compute_von_mises(sol)
+    # cell_infos.extend([(f'{key}', item ) for key,item in mises.items()])
+    cell_infos.append(('cell_von_mises', mises["cell_von_mises"] ))
     save_sol(problem.fe, np.hstack((sol, np.zeros((len(sol), 1)))), vtu_path, 
              cell_infos=cell_infos)
     print(f"compliance = {obj_val}")
     outputs.append(obj_val)
     output_sol.counter += 1
 output_sol.counter = 0
+
 
 
 # Prepare J_total and dJ/d(theta) that are required by the MMA optimizer.
@@ -267,13 +334,13 @@ optimizationParams = {'maxIters':51, 'movelimit':1.0, 'density_filtering_1':True
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
-print(f"rho_ini.shape{rho_ini.shape}")
-try:
-    rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
-except Exception as e:
-    # 捕获所有异常，打印错误信息
-    print("something wrong.")
-    print(f"{str(e)}")
+# print(f"rho_ini.shape{rho_ini.shape}")
+# try:
+rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
+# except Exception as e:
+#     # 捕获所有异常，打印错误信息
+#     print("something wrong.")
+#     print(f"{str(e)}")
 
 np.save("data/npy/rho_oped",rho_oped)
 # print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")

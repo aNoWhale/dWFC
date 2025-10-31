@@ -4,6 +4,7 @@
 from typing import List,Dict
 import jax
 import jax.numpy as np
+from jax import vmap
 import os
 import json
 class SigmaInterpreter:
@@ -26,86 +27,105 @@ class SigmaInterpreter:
     def __call__(self,u_grad,weights,*args,**kwargs) -> None:
 
         if self.debug:
-            def stress(u_grad, *args, **kwargs):
-                Emax = 3.5e9   # 杨氏模量 [Pa] (3.5 GPa)
-                nu = 0.36      # 泊松比
-                E = Emax
-                # 计算应变张量
-                epsilon = 0.5 * (u_grad + u_grad.T)
-                # 计算材料参数
-                mu = E / (2 * (1 + nu))        # 剪切模量
-                lam = E * nu / ((1 + nu) * (1 - 2 * nu))  # 拉梅第一参数
-                # 计算应变张量的迹
-                trace_epsilon = epsilon[0, 0] + epsilon[1, 1] + epsilon[2, 2]
-                # 初始化应力张量
-                sigma = np.zeros((3, 3))
-                
-                diag_indices = np.diag_indices(3)
-                sigma = sigma.at[diag_indices].set(lam * trace_epsilon + 2 * mu * epsilon[diag_indices])
-                
-                triu_indices = np.triu_indices(3, k=1)
-                sigma = sigma.at[triu_indices].set(2 * mu * epsilon[triu_indices])
-                
-                tril_indices = np.tril_indices(3, k=-1)
-                sigma = sigma.at[tril_indices].set(2 * mu * epsilon[tril_indices])
-                # print(f"sigma:{sigma}")
-                return sigma
             return stress(u_grad)
         else:
-            def stress_anisotropic(C, u_grad, *args, **kwargs):
-                """
-                计算三维各向异性材料的应力张量
-                
-                参数:
-                u_grad: 位移梯度张量 (3x3 numpy数组)
-                
-                返回:
-                sigma: 应力张量 (3x3 numpy数组)
-                """
-                  
-                # 计算应变张量
-                epsilon = 0.5 * (u_grad + u_grad.T)
-                
-                # 将应变张量转换为Voigt符号表示 (6x1向量)
-                # Voigt符号: [ε11, ε22, ε33, 2ε23, 2ε13, 2ε12]
-                epsilon_voigt = np.array([
-                    epsilon[0, 0],
-                    epsilon[1, 1],
-                    epsilon[2, 2],
-                    2 * epsilon[1, 2],
-                    2 * epsilon[0, 2],
-                    2 * epsilon[0, 1]
-                ])
-                
-                # 计算应力向量 (Voigt符号)
-                sigma_voigt = np.dot(C, epsilon_voigt)
-                
-                # 将应力向量转换回张量形式
-                sigma = np.zeros((3, 3))  # 用JAX创建3x3零矩阵
-                # 填充对角元素
-                sigma = sigma.at[0, 0].set(sigma_voigt[0])  # σ11
-                sigma = sigma.at[1, 1].set(sigma_voigt[1])  # σ22
-                sigma = sigma.at[2, 2].set(sigma_voigt[2])  # σ33
-                # 填充对称的非对角元素（利用应力张量对称性）
-                sigma = sigma.at[1, 2].set(sigma_voigt[3])  # σ23
-                sigma = sigma.at[2, 1].set(sigma_voigt[3])  # σ32（对称）
-                sigma = sigma.at[0, 2].set(sigma_voigt[4])  # σ13
-                sigma = sigma.at[2, 0].set(sigma_voigt[4])  # σ31（对称）
-                sigma = sigma.at[0, 1].set(sigma_voigt[5])  # σ12
-                sigma = sigma.at[1, 0].set(sigma_voigt[5])  # σ21（对称）
-                
-                return sigma
             # jax.debug.print("weight: {a}", a=weights)
             p=3
             q=1
-            eps = 1e-3
+            eps = 1e-6
             Cmin = np.sum(eps*self.C,axis=-3)
-            wm = weights**p 
+            wm = np.power(weights,p)
             # C = Cmin + np.einsum("n,nij->ij", wm, (self.C-Cmin))
             ramp_factor = wm / (1 + q * (1 - wm))  # 替换SIMP中的wm
-            C = Cmin + np.einsum("n,nij->ij", ramp_factor, (self.C - Cmin))
+            C = Cmin + np.einsum("...n,...nij->...ij", ramp_factor, (self.C - Cmin))
             return stress_anisotropic(C, u_grad)
 
+
+    # def __call__(self, u_grad, weights, *args, **kwargs):
+    #     # 输入维度检测 + 动态适配（核心兼容逻辑）
+    #     if u_grad.ndim > 2:  # 高维输入 (num_cells, num_quads, ..., 3, 3)
+    #         vmap_levels = u_grad.ndim - 2  # 批量维度层数（除去最后2维3x3）
+    #         base_func = self._stress_wrapper if self.debug else self._stress_anisotropic_wrapper
+    #         batched_func = base_func
+    #         for _ in range(vmap_levels):
+    #             batched_func = vmap(batched_func)
+    #         return batched_func(u_grad, weights)
+    #     else:  # 原始2维输入 (3, 3)，沿用原有逻辑（仅替换jnp为np）
+    #         if self.debug:
+    #             def stress(u_grad, *args, **kwargs):
+    #                 Emax = 3.5e9   # 杨氏模量 [Pa] (3.5 GPa)
+    #                 nu = 0.36      # 泊松比
+    #                 E = Emax
+    #                 # 计算应变张量
+    #                 epsilon = 0.5 * (u_grad + u_grad.T)
+    #                 # 计算材料参数
+    #                 mu = E / (2 * (1 + nu))        # 剪切模量
+    #                 lam = E * nu / ((1 + nu) * (1 - 2 * nu))  # 拉梅第一参数
+    #                 # 计算应变张量的迹（替换jnp.trace为np.trace）
+    #                 trace_epsilon = np.trace(epsilon)
+    #                 # 初始化应力张量
+    #                 sigma = np.zeros((3, 3))
+                    
+    #                 diag_indices = np.diag_indices(3)
+    #                 sigma = sigma.at[diag_indices].set(lam * trace_epsilon + 2 * mu * epsilon[diag_indices])
+                    
+    #                 triu_indices = np.triu_indices(3, k=1)
+    #                 sigma = sigma.at[triu_indices].set(2 * mu * epsilon[triu_indices])
+                    
+    #                 tril_indices = np.tril_indices(3, k=-1)
+    #                 sigma = sigma.at[tril_indices].set(2 * mu * epsilon[tril_indices])
+    #                 return sigma
+    #             return stress(u_grad)
+    #         else:
+    #             def stress_anisotropic(C, u_grad, *args, **kwargs):
+    #                 """计算三维各向异性材料的应力张量"""
+    #                 # 计算应变张量
+    #                 epsilon = 0.5 * (u_grad + u_grad.T)
+                    
+    #                 # 将应变张量转换为Voigt符号表示 (6x1向量)
+    #                 epsilon_voigt = np.array([
+    #                     epsilon[0, 0],
+    #                     epsilon[1, 1],
+    #                     epsilon[2, 2],
+    #                     2 * epsilon[1, 2],
+    #                     2 * epsilon[0, 2],
+    #                     2 * epsilon[0, 1]
+    #                 ])
+                    
+    #                 # 计算应力向量 (Voigt符号)
+    #                 sigma_voigt = np.dot(C, epsilon_voigt)
+                    
+    #                 # 将应力向量转换回张量形式
+    #                 sigma = np.zeros((3, 3))
+    #                 sigma = sigma.at[0, 0].set(sigma_voigt[0])
+    #                 sigma = sigma.at[1, 1].set(sigma_voigt[1])
+    #                 sigma = sigma.at[2, 2].set(sigma_voigt[2])
+    #                 sigma = sigma.at[1, 2].set(sigma_voigt[3])
+    #                 sigma = sigma.at[2, 1].set(sigma_voigt[3])
+    #                 sigma = sigma.at[0, 2].set(sigma_voigt[4])
+    #                 sigma = sigma.at[2, 0].set(sigma_voigt[4])
+    #                 sigma = sigma.at[0, 1].set(sigma_voigt[5])
+    #                 sigma = sigma.at[1, 0].set(sigma_voigt[5])
+    #                 return sigma
+                
+    #             p = 3
+    #             q = 1
+    #             eps = 1e-3
+    #             Cmin = np.sum(eps * self.C, axis=-3)
+    #             wm = weights** p 
+    #             ramp_factor = wm / (1 + q * (1 - wm))
+    #             C = Cmin + np.einsum("n,nij->ij", ramp_factor, (self.C - Cmin))
+    #             return stress_anisotropic(C, u_grad)
+
+    # # 新增：包装函数（适配vmap，复用原有逻辑）
+    # def _stress_wrapper(self, u_grad, weights=None):
+    #     """包装各向同性应力计算（适配vmap）"""
+    #     return self.__call__(u_grad, weights, debug=True)
+
+    # def _stress_anisotropic_wrapper(self, u_grad, weights):
+        """包装各向异性应力计算（适配vmap）"""
+        return self.__call__(u_grad, weights, debug=False)
+  
 
     def _buildCDict(self):
         C=[]
@@ -126,3 +146,75 @@ class SigmaInterpreter:
             except Exception as e:
                 print(f"Error processing {file_path}: {str(e)}")
         self.C=np.array(C)
+
+def stress( u_grad, *args, **kwargs):
+    Emax = 3.5e9   # 杨氏模量 [Pa] (3.5 GPa)
+    nu = 0.36      # 泊松比
+    E = Emax
+    # 计算应变张量
+    epsilon = 0.5 * (u_grad + u_grad.T)
+    # 计算材料参数
+    mu = E / (2 * (1 + nu))        # 剪切模量
+    lam = E * nu / ((1 + nu) * (1 - 2 * nu))  # 拉梅第一参数
+    # 计算应变张量的迹
+    trace_epsilon = epsilon[0, 0] + epsilon[1, 1] + epsilon[2, 2]
+    # 初始化应力张量
+    sigma = np.zeros((3, 3))
+    
+    diag_indices = np.diag_indices(3)
+    sigma = sigma.at[diag_indices].set(lam * trace_epsilon + 2 * mu * epsilon[diag_indices])
+    
+    triu_indices = np.triu_indices(3, k=1)
+    sigma = sigma.at[triu_indices].set(2 * mu * epsilon[triu_indices])
+    
+    tril_indices = np.tril_indices(3, k=-1)
+    sigma = sigma.at[tril_indices].set(2 * mu * epsilon[tril_indices])
+    # print(f"sigma:{sigma}")
+    return sigma
+
+def stress_anisotropic( C, u_grad, *args, **kwargs):
+    """
+    计算三维各向异性材料的应力张量
+    
+    参数:
+    u_grad: 位移梯度张量 (3x3 numpy数组)
+    
+    返回:
+    sigma: 应力张量 (3x3 numpy数组)
+    """
+    # 计算应变张量
+    u_grad_t = np.transpose(u_grad, axes=(*range(u_grad.ndim-2), -1, -2))  # 保持前n-2维不变，交换最后两维
+    epsilon = 0.5 * (u_grad + u_grad_t)
+    # 将应变张量转换为Voigt符号表示 (6x1向量)
+    # Voigt符号: [ε11, ε22, ε33, 2ε23, 2ε13, 2ε12]
+    epsilon_voigt = np.stack([
+        epsilon[..., 0, 0],  # ε11，形状: (...)
+        epsilon[..., 1, 1],  # ε22
+        epsilon[..., 2, 2],  # ε33
+        2 * epsilon[..., 1, 2],  # 2ε23
+        2 * epsilon[..., 0, 2],  # 2ε13
+        2 * epsilon[..., 0, 1]   # 2ε12
+    ], axis=-1)  # 堆叠为 (..., 6)，最后一维为Voigt分量
+    
+    # 计算应力向量 (Voigt符号)
+    # sigma_voigt = np.dot(C, epsilon_voigt)
+    sigma_voigt = np.einsum("...ij,...j->...i",C,epsilon_voigt)
+    
+    # 将应力向量转换回张量形式
+    # 初始化应力张量: (..., 3, 3)
+    sigma = np.zeros((*epsilon.shape[:-2], 3, 3), dtype=sigma_voigt.dtype)
+    
+    # 填充对角元素
+    sigma = sigma.at[..., 0, 0].set(sigma_voigt[..., 0])  # σ11
+    sigma = sigma.at[..., 1, 1].set(sigma_voigt[..., 1])  # σ22
+    sigma = sigma.at[..., 2, 2].set(sigma_voigt[..., 2])  # σ33
+    
+    # 填充对称非对角元素
+    sigma = sigma.at[..., 1, 2].set(sigma_voigt[..., 3])  # σ23
+    sigma = sigma.at[..., 2, 1].set(sigma_voigt[..., 3])  # σ32（对称）
+    sigma = sigma.at[..., 0, 2].set(sigma_voigt[..., 4])  # σ13
+    sigma = sigma.at[..., 2, 0].set(sigma_voigt[..., 4])  # σ31（对称）
+    sigma = sigma.at[..., 0, 1].set(sigma_voigt[..., 5])  # σ12
+    sigma = sigma.at[..., 1, 0].set(sigma_voigt[..., 5])  # σ21（对称）
+    return sigma
+  
