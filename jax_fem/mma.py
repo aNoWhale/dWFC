@@ -468,6 +468,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     density_filtering_2 = optimizationParams.get('density_filtering_2',False) #之前这个一直是false
 
     sensitivity_filtering = optimizationParams.get('sensitivity_filtering',True)
+    Nx,Ny,Nz = optimizationParams.get("NxNyNz",(10,40,10))
 
     J_prev = np.inf
     rho_prev = rho_ini.copy()
@@ -516,7 +517,10 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         else:
             rho_rough = rho
 
-        prob_collapsed,_,_=WFC(rho_rough.reshape(-1,tileNum),)
+        prob_collapsed,_,_=WFC(rho_rough.reshape(-1,tileNum),loop)
+        prob_collapsed = prob_collapsed.reshape((Nx,Ny,Nz,tileNum))
+        prob_collapsed = prob_collapsed.at[:,-1,0,:].set(0)
+        prob_collapsed = prob_collapsed.at[:,-1,0,0].set(1)
         rho_c = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
 
         #细过滤

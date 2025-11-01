@@ -82,7 +82,7 @@ def convert_adj_to_vmap_compatible(original_adj, direction_to_idx=None):
         'padded_neighbors': jnp.array(padded_neighbors_np, dtype=jnp.int32),  # 整数数组
         'padded_dirs_int': jnp.array(padded_dirs_int_np, dtype=jnp.int32),    # 方向整数数组（JAX支持）
         'dir_map': dir_map,  # 方向→整数映射表（供后续处理用）
-        'idx_to_dir': idx_to_dir  # 整数→方向反向映射（调试用）
+        # 'idx_to_dir': idx_to_dir  # 整数→方向反向映射（调试用）
     })
     
     # 删除原始字符串方向字段（避免后续误用）
