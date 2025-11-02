@@ -12,10 +12,10 @@ conda install -f environment.yml
 conda env export --from-history > environment.yml
 ```
 
-* to install pip requirements
+<!-- * to install pip requirements
 ```shell
 pip install -r requirements.txt
-```
+``` -->
 
 * to export pip requirements
 ```shell
@@ -27,7 +27,7 @@ pipreqs . --force
 pip install -U "jax[cuda12]"
 ```
 
-* to install julia environment
+<!-- * to install julia environment
 ```shell
 julia Pkg.instantiate(julia_env)
-```
+``` -->
