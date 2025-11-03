@@ -22,44 +22,103 @@ class SigmaInterpreter:
         self.debug=kwargs.get("debug",False)
         if not self.debug:
             self._buildCDict() 
+            self._buildCache() 
     
 
-    def __call__(self,u_grad,weights,*args,**kwargs) -> None:
+    # def __call__(self,u_grad,weights,*args,**kwargs) -> None:
 
+    #     if self.debug:
+    #         return stress(u_grad)
+    #     else:
+    #         # jax.debug.print("weight: {a}", a=weights)
+    #         p=3
+    #         q=1
+    #         eps = 1e-6
+    #         Cmin = eps*np.max(self.C)
+    #         wm = np.power(weights,p)
+    #         # C = Cmin + np.einsum("n,nij->ij", wm, (self.C-Cmin))
+    #         ramp_factor = wm / (1 + q * (1 - wm))  # 替换SIMP中的wm
+    #         C = Cmin + np.einsum("...n,...nij->...ij", ramp_factor, (self.C - Cmin))
+    #         return stress_anisotropic(C, u_grad)
+    
+    
+    def __call__(self, u_grad, weights, *args, **kwargs):
         if self.debug:
             return stress(u_grad)
-        else:
-            # jax.debug.print("weight: {a}", a=weights)
-            p=3
-            q=1
-            eps = 1e-6
-            Cmin = eps*np.max(self.C)
-            wm = np.power(weights,p)
-            # C = Cmin + np.einsum("n,nij->ij", wm, (self.C-Cmin))
-            ramp_factor = wm / (1 + q * (1 - wm))  # 替换SIMP中的wm
-            C = Cmin + np.einsum("...n,...nij->...ij", ramp_factor, (self.C - Cmin))
-            return stress_anisotropic(C, u_grad)
 
+        # 1. 概率 → 标量密度（外部顺序）
+        x_e = np.dot(weights, self.a_aux)  # 用排序后的辅助坐标
+
+        # 2. 区间选择（在排序空间进行）
+        k = np.searchsorted(self.a_aux, x_e, side='right') - 1
+        k = np.clip(k, 0, self.a_aux.shape[0] - 2)
+
+        # 3. 映射回原始索引
+        orig_k = self.inv_order[k]
+        orig_k1 = self.inv_order[k + 1]
+
+        # 4. 局部线性坐标 + Ordered-RAMP
+        beta = 4.0
+        a_k, a_k1 = self.a_aux[k], self.a_aux[k + 1]
+        xi = (x_e - a_k) / (a_k1 - a_k + 1e-12)
+        xi_p = xi / (1 + beta * (1 - xi))
+
+        # 5. 矩阵插值（用原始顺序的 C）
+        C_k = self.C[orig_k]
+        C_k1 = self.C[orig_k1]
+        C_eff = C_k + xi_p[...,None,None] * (C_k1 - C_k)
+
+        return stress_anisotropic(C_eff, u_grad)
+
+
+
+    # def _buildCDict(self):
+    #     C=[]
+    #     for mat_type in self.typeList:
+    #         file_path = os.path.join(self.folderPath, f"{mat_type}.json")
+    #         try:
+    #             with open(file_path, 'r') as f:
+    #                 data = json.load(f)
+
+    #             self.C_dict[mat_type] = np.array(data)
+    #             C.append(data)
+    #             print(f"Loaded C for * {mat_type} * from {file_path}")
+                
+    #         except FileNotFoundError:
+    #             print(f"Warning: File not found for type * {mat_type} * at {file_path}")
+    #         except json.JSONDecodeError:
+    #             print(f"Error: Invalid JSON format in {file_path}")
+    #         except Exception as e:
+    #             print(f"Error processing {file_path}: {str(e)}")
+    #     self.C=np.array(C)
 
     def _buildCDict(self):
-        C=[]
+        C_list = []
         for mat_type in self.typeList:
             file_path = os.path.join(self.folderPath, f"{mat_type}.json")
             try:
                 with open(file_path, 'r') as f:
                     data = json.load(f)
-
-                self.C_dict[mat_type] = np.array(data)
-                C.append(data)
+                C_j = np.array(data)
+                C_list.append(C_j)
                 print(f"Loaded C for * {mat_type} * from {file_path}")
-                
-            except FileNotFoundError:
-                print(f"Warning: File not found for type * {mat_type} * at {file_path}")
-            except json.JSONDecodeError:
-                print(f"Error: Invalid JSON format in {file_path}")
             except Exception as e:
-                print(f"Error processing {file_path}: {str(e)}")
-        self.C=np.array(C)
+                print(f"Error loading {file_path}: {e}")
+        self.C = np.array(C_list)  # 保持外部顺序
+
+    def _buildCache(self):
+        # 1. 计算代表标量（外部顺序）
+        c_j = np.linalg.norm(self.C, axis=(1, 2))
+
+        # 2. 生成排序索引（升序）
+        self.order = np.argsort(c_j)  # 内部用：单调索引
+        self.inv_order = np.argsort(self.order)  # 回映射：内部k -> 外部idx
+
+        # 3. 生成排序后的辅助坐标（仅用于区间查找）
+        self.a_aux = (c_j[self.order] - c_j[self.order][0]) / (
+            c_j[self.order][-1] - c_j[self.order][0]
+        )
+
 
 def stress( u_grad, *args, **kwargs):
     Emax = 3.5e9   # 杨氏模量 [Pa] (3.5 GPa)

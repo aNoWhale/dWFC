@@ -501,8 +501,8 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
     while loop < optimizationParams['maxIters']:
         np.save(f"data/npy/{loop}",rho)
-        alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
-        # alpha = 1
+        # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
+        alpha = 1
         loop = loop + 1
         print(f"MMA solver...")
         print(f"collapsing...")
@@ -517,11 +517,15 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         else:
             rho_rough = rho
 
-        prob_collapsed,_,_=WFC(rho_rough.reshape(-1,tileNum),loop)
-        prob_collapsed = prob_collapsed.reshape((Nx,Ny,Nz,tileNum))
-        prob_collapsed = prob_collapsed.at[:,-1,0,:].set(0)
-        prob_collapsed = prob_collapsed.at[:,-1,0,0].set(1)
-        rho_c = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+        # if loop != 0 and loop%5 == 0:
+        #     prob_collapsed,_,_=WFC(rho_rough.reshape(-1,tileNum),loop)
+        #     # prob_collapsed = prob_collapsed.reshape((Nx,Ny,Nz,tileNum))
+        #     # prob_collapsed = prob_collapsed.at[:,-1,0,:].set(0)
+        #     # prob_collapsed = prob_collapsed.at[:,-1,0,0].set(1)
+        #     rho_c = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+        # else:
+        #     rho_c = rho_rough.reshape(-1,tileNum)
+        rho_c = rho_rough.reshape(-1,tileNum)
 
         #细过滤
         if density_filtering_2:
@@ -590,6 +594,14 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         mma.registerMMAIter(xval, xold1, xold2)
         rho_mma = xval.reshape(rho.shape)
+        if loop%2 == 0 and loop != 0:
+            prob_collapsed,_,_=WFC(rho_rough.reshape(-1,tileNum),loop)
+            # prob_collapsed = prob_collapsed.reshape((Nx,Ny,Nz,tileNum))
+            # prob_collapsed = prob_collapsed.at[:,-1,0,:].set(0)
+            # prob_collapsed = prob_collapsed.at[:,-1,0,0].set(1)
+            rho_mma = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+        else:
+            rho_mma = rho_mma.reshape(-1,tileNum)
         rho = alpha * rho_mma+(1-alpha) * rho_prev #混合更新
         end = time.time()
 

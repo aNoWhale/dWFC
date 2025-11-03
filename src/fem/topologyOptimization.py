@@ -237,12 +237,12 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['solid','void',], 
+tileHandler = TileHandler(typeList=['solid','void','weird'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.setConnectiability(fromTypeName='solid',toTypeName=["void",],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='void', toTypeName="weird", direction="isotropy",value=1,dual=True)
-tileHandler.selfConnectable(typeName=['solid',"void",],value=1)
+tileHandler.setConnectiability(fromTypeName='solid',toTypeName=["void",'weird'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='void', toTypeName="weird", direction="isotropy",value=1,dual=True)
+tileHandler.selfConnectable(typeName=['solid',"void",'weird'],value=1)
 print(tileHandler)
 tileHandler.constantlize_compatibility()
 # Define forward problem.
@@ -299,7 +299,7 @@ def objectiveHandle(rho):
     return J, dJ
 
 vf0=0.35
-# vf1=0.35
+vf1=0.35
 ea = 0.01
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
 numConstraints = 2
@@ -311,17 +311,17 @@ def consHandle(rho, epoch):
     #     g = np.mean(rho)/vf1 - 1.
     #     return g
     c0, gradc0 = jax.value_and_grad(lambda rho: np.mean(rho[...,0])/vf0 - 1.)(rho)
-    # c1, gradc1 = jax.value_and_grad(lambda rho: np.mean(rho[...,1])/vf1 - 1.)(rho)
-    def computeCellMaximumEntropy(rho):
-        cell_max_p = np.max(rho, axis=-1)
-        modified_e = -cell_max_p * np.log2(cell_max_p)+(1-cell_max_p)
-        mean=np.mean(modified_e)
-        ec=mean/ea
-        return ec
-    ec, gradea = jax.value_and_grad(computeCellMaximumEntropy)(rho)
-    print(f"ec:{ec}\nc0:{c0}")
-    c=np.array([ec, c0])
-    gradc=np.array([gradea, gradc0])
+    c1, gradc1 = jax.value_and_grad(lambda rho: np.mean(rho[...,1])/vf1 - 1.)(rho)
+    # def computeCellMaximumEntropy(rho):
+    #     cell_max_p = np.max(rho, axis=-1)
+    #     modified_e = -cell_max_p * np.log2(cell_max_p)+(1-cell_max_p)
+    #     mean=np.mean(modified_e)
+    #     ec=mean/ea
+    #     return ec
+    # ec, gradea = jax.value_and_grad(computeCellMaximumEntropy)(rho)
+    print(f"c0:{c0}\nc1:{c1}")
+    c=np.array([c0, c1])
+    gradc=np.array([ gradc0, gradc1])
     print(f"c.shape:{c.shape}")
     print(f"gradc.shape:{gradc.shape}")
     c = c.reshape((-1,))
@@ -331,7 +331,7 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 wfc=lambda prob, loop ,*args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,loop,args,kwargs)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':101, 'movelimit':3.0, 'density_filtering_1':False, 'density_filtering_2':False,'NxNyNz':(Nx,Ny,Nz)}
+optimizationParams = {'maxIters':101, 'movelimit':0.1, 'density_filtering_1':False, 'density_filtering_2':False,'NxNyNz':(Nx,Ny,Nz)}
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
