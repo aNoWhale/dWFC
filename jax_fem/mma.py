@@ -464,8 +464,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     tol_design = optimizationParams.get('tol_design', 1e-1)
     tol_con = optimizationParams.get('tol_con', 1e-1)
     min_iters = optimizationParams.get('min_iters', 10)
-    density_filtering_1 = optimizationParams.get('density_filtering_1',False)
-    density_filtering_2 = optimizationParams.get('density_filtering_2',False) #之前这个一直是false
+    # density_filtering_1 = optimizationParams.get('density_filtering_1',False)
+    # density_filtering_2 = optimizationParams.get('density_filtering_2',False) #之前这个一直是false
+    # wfc = optimizationParams.get('wfc',False)
 
     sensitivity_filtering = optimizationParams.get('sensitivity_filtering',True)
     Nx,Ny,Nz = optimizationParams.get("NxNyNz",(10,40,10))
@@ -475,7 +476,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     rho = rho_ini
     J_list=[]
 
-    H_r, Hs_r = compute_filter_kd_tree(fe,r_factor = 1.5)
+    H_r, Hs_r = compute_filter_kd_tree(fe,r_factor = 1.2)
     ft_rough = {'H':H_r, 'Hs':Hs_r}
     H, Hs = compute_filter_kd_tree(fe,r_factor = 1)
     ft = {'H':H, 'Hs':Hs}
@@ -511,34 +512,67 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         # prob_collapsed=rho
         # rho_c = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
 
-        #粗过滤
-        if density_filtering_1:
-            rho_rough = applyDensityFilter(ft_rough, rho)
-        else:
-            rho_rough = rho
+        # #粗过滤
+        # if density_filtering_1:
+        #     rho_rough = applyDensityFilter(ft_rough, rho)
+        # else:
+        #     rho_rough = rho
 
-        # if loop != 0 and loop%5 == 0:
+        # if wfc:
         #     prob_collapsed,_,_=WFC(rho_rough.reshape(-1,tileNum),loop)
         #     # prob_collapsed = prob_collapsed.reshape((Nx,Ny,Nz,tileNum))
         #     # prob_collapsed = prob_collapsed.at[:,-1,0,:].set(0)
         #     # prob_collapsed = prob_collapsed.at[:,-1,0,0].set(1)
         #     rho_c = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+        #     # temperature = 1 + 1 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5)))
+        #     temperature = 1
+        #     rho_c = jax.nn.softmax(rho_c / temperature, axis=-1)
         # else:
         #     rho_c = rho_rough.reshape(-1,tileNum)
-        rho_c = rho_rough.reshape(-1,tileNum)
 
-        #细过滤
-        if density_filtering_2:
-            rho_c_physical = applyDensityFilter(ft, rho_c)
-        else:
-            rho_c_physical = rho_c
+        # #细过滤
+        # if density_filtering_2:
+        #     rho_c_physical = applyDensityFilter(ft, rho_c)
+        # else:
+        #     rho_c_physical = rho_c
 
+        def filter_chain(rho,ft_rough,WFC,ft,loop):
+            rho = applyDensityFilter(ft_rough, rho)
+            prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum),loop)
+            rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+            # temperature = 1
+            # rho = jax.nn.softmax(rho / temperature, axis=-1)
+            rho_c_physical = applyDensityFilter(ft, rho)
+            return rho_c_physical
+        
+        # 1. 先计算一次正向结果（包含WFC调用）
+        rho_f = filter_chain(rho, ft_rough, WFC, ft, loop)
 
-        J, dJ = objectiveHandle(rho_c_physical)
-        vc, dvc = consHandle(rho_c_physical, loop)
+        # 2. 定义一个复用rho_f的函数（仅用于VJP，避免重复计算WFC）
+        def rho_r_reuse(r):
+            # 用stop_gradient固定rho_f，避免VJP重新计算filter_chain
+            return jax.lax.stop_gradient(rho_f)
 
+        # 3. 对复用函数构建VJP（此时不会重新执行WFC）
+        _, vjp_fn = jax.vjp(rho_r_reuse, rho)
+
+        # 4. 计算下游梯度并应用链式法则
+        J, dJ_drho_f = objectiveHandle(rho_f)
+        vc, dvc_drho_f = consHandle(rho_f)
+        
+        dJ_drho = vjp_fn(dJ_drho_f)[0]
+        vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)  # 对第0维（约束维度）批量处理
+        dvc_drho = vjp_batch(dvc_drho_f)[0]  # 直接得到形状：(3, rho.shape)
+
+        # J, dJ_drho_f = value_and_grad(lambda x: objectiveHandle(x)[0])(rho_f)
+        # dJ_drho = jnp.dot(dJ_drho_f.ravel(),jax.jacobian(lambda r: filter_chain(r, ft_rough, WFC, ft, loop))(rho).reshape(rho_f.size, rho.size))
+        # # 约束
+        # vc, dvc_drho_f = value_and_grad(lambda x: consHandle(x, loop)[0])(rho_f)
+        # dvc_drho = jnp.tensordot(dvc_drho_f,jax.jacobian(lambda r: filter_chain(r, ft_rough, WFC, ft, loop))(rho).reshape(rho_f.size, rho.size),axes=(1, 0))
+        dJ=dJ_drho
+        dvc=dvc_drho
         if sensitivity_filtering:
-            dJ, dvc = applySensitivityFilter(ft, rho_c_physical, dJ, dvc)
+            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
 
         J, dJ = J, dJ.reshape(-1)[:, None]
         vc, dvc = vc[:, None], dvc.reshape(dvc.shape[0], -1)
@@ -570,8 +604,8 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         # 目标函数变化
         obj_change = J - J_prev
         
-        # 设计变量变化
-        design_change = np.linalg.norm(rho - rho_prev)
+        # # 设计变量变化
+        # design_change = np.linalg.norm(rho - rho_prev)
         
         # 约束满足度
         con_violation = np.max(vc)
@@ -579,30 +613,21 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         # 梯度范数
         print("****************************************************")
         print(f"{optimizationParams}")
-        print(f"obj_change:{obj_change};{max(1e-6, tol_obj*abs(J_prev))}\n",
-              f"design_change:{design_change};{tol_design}\n",
-              f"con_violation:{con_violation};{tol_con}\n",)
+        print(f"obj_change:{obj_change};{max(1e-6, tol_obj*abs(J_prev))}")
+        print(f"constrain violation:{con_violation};{tol_con}")
         
         
         if loop > min_iters:
-            if abs(obj_change) < max(1e-6, tol_obj*abs(J_prev)) and \
-               (design_change < tol_design) and \
-               (con_violation <= tol_con):
+            if abs(obj_change) < max(1e-6, tol_obj*abs(J_prev)) and\
+                (con_violation <= tol_con):
                 print(f"收敛于迭代 {loop}")
                 break
 
 
         mma.registerMMAIter(xval, xold1, xold2)
         rho_mma = xval.reshape(rho.shape)
-        if loop%2 == 0 and loop != 0:
-            prob_collapsed,_,_=WFC(rho_rough.reshape(-1,tileNum),loop)
-            # prob_collapsed = prob_collapsed.reshape((Nx,Ny,Nz,tileNum))
-            # prob_collapsed = prob_collapsed.at[:,-1,0,:].set(0)
-            # prob_collapsed = prob_collapsed.at[:,-1,0,0].set(1)
-            rho_mma = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
-        else:
-            rho_mma = rho_mma.reshape(-1,tileNum)
         rho = alpha * rho_mma+(1-alpha) * rho_prev #混合更新
+        rho = np.clip(rho, 0, 1)
         end = time.time()
 
         time_elapsed = end - start

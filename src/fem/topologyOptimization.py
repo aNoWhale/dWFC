@@ -32,7 +32,7 @@ from jax_fem.mma import optimize
 from src.fem.SigmaInterpreter import SigmaInterpreter
 from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
-from src.WFC.iterateWaveFunctionCollapse import waveFunctionCollapse
+from src.WFC.iterateWaveFunctionCollapseFilter import waveFunctionCollapse
 
 
 # Do some cleaning work. Remove old solution files.
@@ -237,17 +237,19 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['solid','void','weird'], 
+tileHandler = TileHandler(typeList=['BCC','FCCtube','FCCnp2dpillar'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.setConnectiability(fromTypeName='solid',toTypeName=["void",'weird'],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='void', toTypeName="weird", direction="isotropy",value=1,dual=True)
-tileHandler.selfConnectable(typeName=['solid',"void",'weird'],value=1)
+tileHandler.setConnectiability(fromTypeName='BCC',toTypeName=["FCCtube",'FCCnp2dpillar'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='FCCtube', toTypeName="FCCnp2dpillar", direction="isotropy",value=1,dual=True)
+tileHandler.selfConnectable(typeName=['BCC','FCCtube','FCCnp2dpillar'],value=1)
 print(tileHandler)
 tileHandler.constantlize_compatibility()
+sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/C",debug=False)
+print(sigmaInterpreter)
 # Define forward problem.
 problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
-                     additional_info=(SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/C",debug=False),))
+                     additional_info=(sigmaInterpreter,))
 
 # Apply the automatic differentiation wrapper.
 # This is a critical step that makes the problem solver differentiable.
@@ -298,12 +300,12 @@ def objectiveHandle(rho):
     output_sol(rho, J, sol)
     return J, dJ
 
-vf0=0.35
-vf1=0.35
-ea = 0.01
+vf0 = 0.35
+vf1 = 0.35
+vf2 = 0.35
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
-numConstraints = 2
-def consHandle(rho, epoch):
+numConstraints = 3
+def consHandle(rho):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
     # dc should have shape (numConstraints, ...)
@@ -312,6 +314,8 @@ def consHandle(rho, epoch):
     #     return g
     c0, gradc0 = jax.value_and_grad(lambda rho: np.mean(rho[...,0])/vf0 - 1.)(rho)
     c1, gradc1 = jax.value_and_grad(lambda rho: np.mean(rho[...,1])/vf1 - 1.)(rho)
+    c2, gradc2 = jax.value_and_grad(lambda rho: np.mean(rho[...,2])/vf2 - 1.)(rho)
+
     # def computeCellMaximumEntropy(rho):
     #     cell_max_p = np.max(rho, axis=-1)
     #     modified_e = -cell_max_p * np.log2(cell_max_p)+(1-cell_max_p)
@@ -319,11 +323,14 @@ def consHandle(rho, epoch):
     #     ec=mean/ea
     #     return ec
     # ec, gradea = jax.value_and_grad(computeCellMaximumEntropy)(rho)
-    print(f"c0:{c0}\nc1:{c1}")
-    c=np.array([c0, c1])
-    gradc=np.array([ gradc0, gradc1])
-    print(f"c.shape:{c.shape}")
-    print(f"gradc.shape:{gradc.shape}")
+    print(f"mean0: {np.mean(rho[...,0])}")
+    print(f"mean1: {np.mean(rho[...,1])}")
+    print(f"mean2: {np.mean(rho[...,2])}")
+    # print(f"c0:{c0}\nc1:{c1}\nc2:{c2}")
+    c=np.array([c0, c1, c2])
+    gradc=np.array([ gradc0, gradc1, gradc2])
+    # print(f"c.shape:{c.shape}")
+    # print(f"gradc.shape:{gradc.shape}")
     c = c.reshape((-1,))
     return c, gradc
 
@@ -331,7 +338,7 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 wfc=lambda prob, loop ,*args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,loop,args,kwargs)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':101, 'movelimit':0.1, 'density_filtering_1':False, 'density_filtering_2':False,'NxNyNz':(Nx,Ny,Nz)}
+optimizationParams = {'maxIters':101, 'movelimit':0.03, 'NxNyNz':(Nx,Ny,Nz)}
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum

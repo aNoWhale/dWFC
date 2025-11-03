@@ -7,6 +7,8 @@ import jax.numpy as np
 from jax import vmap
 import os
 import json
+from functools import partial
+
 class SigmaInterpreter:
     def __init__(self,typeList:List,folderPath:str=None,*args,**kwargs) -> None:
         """SigmaInterpreter class was designed to provide sigma for fem
@@ -41,13 +43,13 @@ class SigmaInterpreter:
     #         C = Cmin + np.einsum("...n,...nij->...ij", ramp_factor, (self.C - Cmin))
     #         return stress_anisotropic(C, u_grad)
     
-    
+    # @partial(jax.jit, static_argnames=())
     def __call__(self, u_grad, weights, *args, **kwargs):
-        if self.debug:
-            return stress(u_grad)
+        # if self.debug:
+        #     return stress(u_grad)
 
         # 1. 概率 → 标量密度（外部顺序）
-        x_e = np.dot(weights, self.a_aux)  # 用排序后的辅助坐标
+        x_e = np.dot(weights, self.a_aux[self.inv_order])  # 用排序后的辅助坐标
 
         # 2. 区间选择（在排序空间进行）
         k = np.searchsorted(self.a_aux, x_e, side='right') - 1
@@ -70,28 +72,23 @@ class SigmaInterpreter:
 
         return stress_anisotropic(C_eff, u_grad)
 
+    def __repr__(self) -> str:
+        if not hasattr(self, "order"):
+            return "<SigmaInterpreter: 尚未初始化缓存>"
 
+        header = f"{'idx':>3} {'type':<12} {'order':>5} {'|C|':>10}"
+        bar = "-" * len(header)
+        lines = [header, bar]
 
-    # def _buildCDict(self):
-    #     C=[]
-    #     for mat_type in self.typeList:
-    #         file_path = os.path.join(self.folderPath, f"{mat_type}.json")
-    #         try:
-    #             with open(file_path, 'r') as f:
-    #                 data = json.load(f)
+        c_norm = np.linalg.norm(self.C, axis=(1, 2))
+        for ext_idx, typ in enumerate(self.typeList):
+            # 安全地把“外部索引”映射到“内部排序序号”
+            int_idx = int(np.asarray(self.order == ext_idx).argmax())
+            lines.append(f"{ext_idx:>3} {typ:<12} {int_idx:>5} {c_norm[ext_idx]:>10.3e}")
 
-    #             self.C_dict[mat_type] = np.array(data)
-    #             C.append(data)
-    #             print(f"Loaded C for * {mat_type} * from {file_path}")
-                
-    #         except FileNotFoundError:
-    #             print(f"Warning: File not found for type * {mat_type} * at {file_path}")
-    #         except json.JSONDecodeError:
-    #             print(f"Error: Invalid JSON format in {file_path}")
-    #         except Exception as e:
-    #             print(f"Error processing {file_path}: {str(e)}")
-    #     self.C=np.array(C)
-
+        return "\n".join(lines)
+    
+    
     def _buildCDict(self):
         C_list = []
         for mat_type in self.typeList:
@@ -111,12 +108,12 @@ class SigmaInterpreter:
         c_j = np.linalg.norm(self.C, axis=(1, 2))
 
         # 2. 生成排序索引（升序）
-        self.order = np.argsort(c_j)  # 内部用：单调索引
+        self.order = np.argsort(c_j)  # 内部用：单调索引 按c_j从小到大排序，索引跟C一样
         self.inv_order = np.argsort(self.order)  # 回映射：内部k -> 外部idx
 
         # 3. 生成排序后的辅助坐标（仅用于区间查找）
         self.a_aux = (c_j[self.order] - c_j[self.order][0]) / (
-            c_j[self.order][-1] - c_j[self.order][0]
+            c_j[self.order][-1] - c_j[self.order][0]+1e-12
         )
 
 
