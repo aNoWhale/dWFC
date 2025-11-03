@@ -338,7 +338,7 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 wfc=lambda prob, loop ,*args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,loop,args,kwargs)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':101, 'movelimit':0.03, 'NxNyNz':(Nx,Ny,Nz)}
+optimizationParams = {'maxIters':101, 'movelimit':1.0, 'NxNyNz':(Nx,Ny,Nz)}
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum

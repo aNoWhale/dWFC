@@ -544,10 +544,19 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             # rho = jax.nn.softmax(rho / temperature, axis=-1)
             rho_c_physical = applyDensityFilter(ft, rho)
             return rho_c_physical
-        
+
         # 1. 先计算一次正向结果（包含WFC调用）
         rho_f = filter_chain(rho, ft_rough, WFC, ft, loop)
 
+
+        rho_small = rho + 1e-6 * jax.random.normal(jax.random.PRNGKey(0), rho.shape)
+        rho_f_small = filter_chain(rho_small, ft_rough, WFC, ft, loop)
+        print("rho_f变化量：", jnp.linalg.norm(rho_f_small - rho_f))  # 应为非零值
+
+        # 计算filter_chain对rho的梯度（验证梯度非零）
+        grad_filter = jax.grad(lambda r: jnp.sum(filter_chain(r, ft_rough, WFC, ft, loop)))(rho)
+        print("filter_chain梯度范数：", jnp.linalg.norm(grad_filter))  # 应为非零值
+        
         # 2. 定义一个复用rho_f的函数（仅用于VJP，避免重复计算WFC）
         def rho_r_reuse(r):
             # 用stop_gradient固定rho_f，避免VJP重新计算filter_chain
@@ -559,7 +568,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         # 4. 计算下游梯度并应用链式法则
         J, dJ_drho_f = objectiveHandle(rho_f)
         vc, dvc_drho_f = consHandle(rho_f)
-        
+
         dJ_drho = vjp_fn(dJ_drho_f)[0]
         vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)  # 对第0维（约束维度）批量处理
         dvc_drho = vjp_batch(dvc_drho_f)[0]  # 直接得到形状：(3, rho.shape)
