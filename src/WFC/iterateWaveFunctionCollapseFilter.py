@@ -35,205 +35,151 @@ def get_neighbors(csr, index):
     return neighbors, neighbors_dirs
 
 
-@partial(jax.jit, static_argnames=('threshold',))
-def collapsed_mask(probabilities, threshold=0.99):
-    """
-    创建连续掩码标记已坍缩单元
-    1 = 未坍缩, 0 = 已坍缩（接近 one-hot）
-    """
-    max_probs = jnp.max(probabilities, axis=-1, keepdims=True)
-    return jax.nn.sigmoid(-1000 * (max_probs - threshold))
 
-@partial(jax.jit, static_argnames=('shape',))  # shape作为静态参数（编译时已知的元组，如(100,)）
-def select_collapse_by_map(key, map, shape):
-    max_val = jnp.max(map)
-    mask = map == max_val  # 布尔数组，形状为shape（静态已知）
-    all_indices = jnp.nonzero(mask, size=shape[0], fill_value=-1)[0]  # 一维数组，长度=shape[0]
-    valid_count = jnp.sum(mask)
-    valid_count = jnp.maximum(valid_count, 1)  # 避免除以0（兜底逻辑）
-    subkey, key = jax.random.split(key)  # 拆分密钥，避免随机状态重复
-    random_offset = jax.random.randint(subkey, shape=(), minval=0, maxval=valid_count)
-    collapse_idx = all_indices[random_offset]
-    first_valid_pos = jnp.argmax(mask)  # 第一个有效索引的位置
-    collapse_idx = jnp.where(collapse_idx == -1, all_indices[first_valid_pos], collapse_idx)
-    
-    return collapse_idx
+
 
 @partial(jax.jit, static_argnames=())
-def update_by_neighbors(probs, collapse_id, neighbors, dirs_index, dirs_opposite_index, compatibility):
-    def update_single(neighbor_prob,opposite_dire_index):
-        # p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
-        p_c = jax.lax.dot(compatibility[opposite_dire_index], neighbor_prob, precision=jax.lax.Precision.HIGH)
-        # norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
-        # p_c = p_c / jnp.where(norm == 0, 1.0, norm)
-        return p_c
+def update_by_neighbors(probs, collapse_idx, A, D, dirs_opposite_index, compatibility, init_probs, alpha=0.5):
+    n_cells, n_tiles = probs.shape
+    # 1. 生成当前单元的软掩码
+    collapse_mask = soft_mask(collapse_idx, n_cells, sigma=0.5)  # 软掩码
+    collapse_mask = collapse_mask / jnp.sum(collapse_mask)  # 归一化权重
+    
+    # 2. 提取邻居和方向
+    neighbor_mask = A[:, collapse_idx]  # (n_cells,)
+    neighbor_dirs = D[:, collapse_idx].astype(jnp.int32)  # 确保整数类型
+    valid_dirs = (neighbor_dirs * neighbor_mask).astype(jnp.int32)  # 有效方向索引
+    
+    # 3. 计算兼容性（添加可微噪声打破常数壁垒）
+    opposite_dirs = jnp.take(dirs_opposite_index, valid_dirs, mode='clip')
+    compat = jnp.take(compatibility, opposite_dirs, axis=0)
+    noise = jax.random.normal(jax.random.PRNGKey(42), compat.shape) * 1e-5  # 可微噪声
+    compat = compat + noise  # 避免兼容性矩阵为严格常数
+    
+    # 4. 计算更新因子
+    neighbor_probs = probs * neighbor_mask[:, None]
+    update_factors = jnp.einsum('cij, cj -> ci', compat, neighbor_probs)
+    cumulative_factor = jnp.prod(update_factors + (1 - neighbor_mask[:, None]), axis=0)
+    
+    # 5. 更新当前单元概率（强化初始概率的依赖）
+    p_updated = probs[collapse_idx] * cumulative_factor
+    # 关键：通过混合初始概率增强梯度传递（替代原无效梯度注入）
+    p_updated = (1 - alpha) * p_updated + alpha * init_probs[collapse_idx]  # 提高alpha权重
+    p_updated = soft_normalize(p_updated, temp=0.5)  # 放宽归一化
+    
+    # 6. 软更新
+    return probs * (1 - collapse_mask[:, None]) + p_updated * collapse_mask[:, None]
 
-    neighbor_probs = probs[neighbors]
-    neighbor_probs = jnp.atleast_1d(neighbor_probs)
-    opposite_indices = jnp.array(dirs_opposite_index)
-    batch_update = jax.vmap(update_single)
-    update_factors = batch_update(neighbor_probs, opposite_indices)
-    cumulative_factor = jnp.prod(update_factors, axis=0)
-    p = probs[collapse_id] * cumulative_factor
-    norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
-    p = p / jnp.where(norm == 0, 1.0, norm)
-    return probs.at[collapse_id].set(p)
+
+def preprocess_adjacency(adj_csr, tileHandler):
+    """
+    修复：从 TileHandler 中正确提取方向字符串列表，避免访问不存在的 'direction' 属性
+    """
+    # 步骤1：从 TileHandler 提取方向字符串（基于整数→字符串映射）
+    # 排除 'isotropy'（-1），仅保留具体方向
+    dir_int_to_str = tileHandler.dir_int_to_str
+    concrete_dirs = [
+        dir_str for dir_int, dir_str in dir_int_to_str.items()
+        if dir_int != -1 and dir_str != 'isotropy'  # 过滤 isotropy
+    ]
+    # 去重并保持顺序
+    unique_dirs = list(dict.fromkeys(concrete_dirs))
+    # 创建方向字符串→整数映射
+    dir_mapping = {dir_str: idx for idx, dir_str in enumerate(unique_dirs)}
+    
+    # 步骤2：提取CSR数据（用NumPy处理）
+    row_ptr = np.array(adj_csr['row_ptr'])
+    col_idx = np.array(adj_csr['col_idx'])
+    directions = np.array(adj_csr['directions'])  # 原始方向字符串数组
+    
+    # 步骤3：将方向字符串转为整数（NumPy操作）
+    dir_indices = np.array([dir_mapping[dir_str] for dir_str in directions], dtype=np.int32)
+    
+    # 步骤4：构建邻接矩阵A和方向矩阵D（NumPy稠密矩阵）
+    n_cells = len(row_ptr) - 1  # 总单元数 = row_ptr长度 - 1
+    A_np = np.zeros((n_cells, n_cells), dtype=np.float32)  # 邻接矩阵
+    D_np = np.zeros((n_cells, n_cells), dtype=np.int32)    # 方向矩阵
+    
+    for j in range(n_cells):
+        start = row_ptr[j]
+        end = row_ptr[j+1]
+        neighbors_j = col_idx[start:end]
+        dirs_j = dir_indices[start:end]
+        A_np[neighbors_j, j] = 1.0  # 标记邻居关系
+        D_np[neighbors_j, j] = dirs_j  # 存储方向整数索引
+    
+    # 步骤5：转为JAX数组
+    A = jnp.array(A_np)
+    D = jnp.array(D_np)
+    return A, D
+
 
 @jax.jit
-def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
-    def vectorized_update(neighbor_prob, dir_idx):
-        p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed)
-        p_neigh = jnp.einsum("...i,...i->...i", p_neigh, neighbor_prob)
-        norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
-        p_neigh = p_neigh / jnp.where(norm == 0, 1.0, norm)
-        return jnp.clip(p_neigh[dir_idx], 0, 1)
-    dirs_index=jnp.array(dirs_index)
-    updated_probs = jax.vmap(vectorized_update)(probs[neighbors], dirs_index)
-    return probs.at[neighbors].set(updated_probs)
-
-@partial(jax.jit, static_argnames=('tau','max_rerolls','zero_threshold','k'))   
-def collapse(subkey, probs, max_rerolls=3, zero_threshold=-1e5, k=1000.0, tau=1e-3):
-    near_zero_mask = jax.nn.sigmoid(k * (zero_threshold - probs))
-    initial_gumbel = gumbel_softmax(subkey, probs, tau=tau, hard=False, axis=-1)
-    key, subkey = jax.random.split(subkey)
-    chosen_near_zero = jnp.sum(initial_gumbel * near_zero_mask)
-    should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
-    CONVERGENCE_THRESHOLD = 0.01
-    # def continue_loop(should_reroll):
-    #     return should_reroll > CONVERGENCE_THRESHOLD
-    final_gumbel, total_rerolls, key = jax.lax.cond(
-        should_reroll > CONVERGENCE_THRESHOLD,
-        true_fun=lambda: full_while_loop(
-            subkey, probs, initial_gumbel, near_zero_mask,
-            max_rerolls, zero_threshold, k, tau, should_reroll
-        ),
-        false_fun=lambda: (initial_gumbel, jnp.array(0.0), subkey)
-    )
-    return final_gumbel, key
-
-@partial(jax.jit, static_argnames=('max_rerolls','zero_threshold','k','tau'))
-def full_while_loop(
-    subkey, probs, initial_gumbel, near_zero_mask,
-    max_rerolls, zero_threshold, k, tau, initial_should_reroll
-):
-    """用while_loop实现重选循环，直到重选概率≤阈值或达到最大次数"""
-    CONVERGENCE_THRESHOLD = 0.01
+def update_neighbors(probs, collapse_idx, A, D, compatibility):
+    n_cells, n_tiles = probs.shape
+    # 1. 生成当前单元的掩码（仅collapse_idx位置为1）
+    collapse_mask = jnp.zeros(n_cells, dtype=jnp.float32).at[collapse_idx].set(1.0)  # (n_cells,)
+    p_collapsed = probs[collapse_idx]  # 当前单元的概率
     
-    # 定义循环状态：(重选次数, 当前采样结果, 随机密钥, 当前重选概率)
-    initial_state = (
-        jnp.array(1.0),  # 初始重选次数（已执行1次初始检查）
-        initial_gumbel,  # 当前gumbel采样
-        subkey,          # 随机密钥
-        initial_should_reroll  # 初始重选概率（>阈值）
-    )
-    def cond_fn(state):
-        reroll_count, _, _, current_should_reroll = state
-        # 继续循环的条件：重选次数<上限 且 重选概率>阈值
-        return (reroll_count < max_rerolls) & (current_should_reroll > CONVERGENCE_THRESHOLD)
+    # 2. 提取当前单元的邻居（通过邻接矩阵）
+    neighbor_mask = A[:, collapse_idx]  # (n_cells,)，邻居位置为1
+    neighbor_dirs = D[:, collapse_idx]  # (n_cells,)，邻居的方向索引
     
-    # 循环体函数：更新状态（执行一次重选）
-    def body_fn(state):
-        reroll_count, current_gumbel, key, _ = state
-        new_gumbel = gumbel_softmax(key, probs, tau=tau, hard=False, axis=-1)
-        new_key, subkey = jax.random.split(key)
-        
-        # 计算新的重选概率
-        chosen_near_zero = jnp.sum(new_gumbel * near_zero_mask)
-        new_should_reroll = jax.nn.sigmoid(k * (chosen_near_zero - 0.5))
-        
-        # 混合新旧采样并归一化
-        # mixed_gumbel = 0.8 * new_gumbel + (0.2) * current_gumbel
-        mixed_gumbel = new_gumbel
-        mixed_gumbel = mixed_gumbel / (jnp.sum(mixed_gumbel, axis=-1, keepdims=True) + 1e-8)
-        
-        # 更新重选次数（累计有效重选）
-        new_reroll_count = reroll_count + jnp.clip(new_should_reroll, 0, 1)
-        
-        # 返回更新后的状态
-        return (new_reroll_count, mixed_gumbel, new_key, new_should_reroll)
+    # 3. 计算邻居的更新值（矩阵乘法实现）
+    compat = jnp.take(compatibility, neighbor_dirs, axis=0)  # (n_cells, n_tiles, n_tiles)
+    p_neigh = jnp.einsum('cij, j -> ci', compat, p_collapsed)  # (n_cells, n_tiles)
+    p_neigh = p_neigh * probs * neighbor_mask[:, None]  # 仅更新邻居
+    p_neigh = soft_normalize(p_neigh, temp=0.1)  # 替换为软归一化
     
-    # 执行while_loop
-    final_state = jax.lax.while_loop(cond_fn, body_fn, initial_state)
+    # 4. 软更新邻居概率
+    return probs * (1 - neighbor_mask[:, None]) + p_neigh * neighbor_mask[:, None]
+
+
+
+def sequential_collapse_idx(step, num_elements):
+    """按固定顺序返回当前坍缩单元的索引（第step步坍缩第step个单元）"""
+    return jnp.clip(step, 0, num_elements - 1)  # 确保索引不越界
+
+
+def soft_normalize(p, temp=0.1):
+    """带温度的平滑归一化，temp越小越接近硬归一化，越大梯度越平滑"""
+    p_exp = jnp.exp(p / temp)
+    return p_exp / (jnp.sum(p_exp, axis=-1, keepdims=True) + 1e-8)
+
+def soft_mask(index, n_cells, sigma=0.5):
+    """生成以index为中心的高斯软掩码，sigma越小越接近硬掩码"""
+    x = jnp.arange(n_cells)
+    return jax.nn.sigmoid((- (x - index)**2) / (2 * sigma**2))
+
+
+
+def waveFunctionCollapse(init_probs, adj_csr, tileHandler: TileHandler, loop, plot: bool | str = False, *args, **kwargs) -> jnp.ndarray:
+    n_cells, n_tiles = init_probs.shape
+    probs = init_probs.copy()
+    collapse_list = []
     
-    # 提取最终结果
-    total_rerolls, final_gumbel, key, _ = final_state
-    return final_gumbel, total_rerolls, key
-
-def filter_collapse():
-    pass
-
-
-def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler, loop, plot:bool|str=False, *args, **kwargs)->jnp.ndarray:
-    """a WFC function
-
-    Args:
-        init_probs (array): (n_cells,n_tileTypes)
-        adj_csr (Dict): a dict with neighbor CSR and directions CSR
-        tileHandler (TileHandler): a TileHandler to deal with Tiles
-        plot (bool|str, optional): '2d' or '3d' or False, give out result during the iter whether or not. Defaults to False.
+    # 预构建邻接矩阵和方向矩阵（仅一次）
+    A, D = preprocess_adjacency(adj_csr, tileHandler)
+    dirs_opposite_index = tileHandler.opposite_dir_array
     
-    Kwargs:
-        points (array): vertices of cells
-
-    Returns:
-        jnp.ndarray: probs (n_cells,n_tileTypes)
-    """
-    key = jax.random.PRNGKey(0)
-    num_elements = init_probs.shape[0]
+    pbar = tqdm.tqdm(total=n_cells, desc="collapsing", unit="tiles")
     
-
-    # 初始化概率分布
-    probs=init_probs
-    collapse_map = jnp.ones(probs.shape[0])
-    
-
-    should_stop = False
-    if plot=="2d":
-        visualizer:Visualizer=kwargs.pop("visualizer",None)
-        visualizer.add_frame(probs=probs)
-    pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles",mininterval=1.5)
-    collapse_list=[-1]
-    while should_stop is False:
-        key, subkey1, subkey2 = jax.random.split(key, 3)
-        norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
-        probs = probs / jnp.where(norm == 0, 1.0, norm)
-        # collapse_idx, max_entropy, collapse_map = select_collapse(subkey, probs, tau=1e-3,collapse_map=collapse_map,)
-        collapse_idx = select_collapse_by_map(subkey1, collapse_map, collapse_map.shape)
-        if jnp.max(collapse_map) < 1: 
-            print(f"####reached stop condition####\n")
-            should_stop=True
-            break
-
-        # 获取该单元的邻居
-        neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
-        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs)
-
-        # 根据邻居更新坍缩单元格的概率
-        neighbors_dirs_opposite_index = tileHandler.opposite_dir_array[jnp.array(neighbors_dirs_index)]
-        probs = update_by_neighbors(probs, collapse_idx, neighbors, neighbors_dirs_index,neighbors_dirs_opposite_index, tileHandler.compatibility)
-        
-        # # 坍缩选定的单元
-        # tau = 1e-3 + 1 / (1 + np.exp(-10. * -1. * (loop / 100. - 0.5)))
-        # # tau=1e-3
-        # p_collapsed, _ = collapse(subkey=subkey2, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=-1e-5, tau=tau,k=1000)
-        # probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
-        p_collapsed = probs[collapse_idx]
+    for collapse_idx in range(n_cells):
         collapse_list.append(collapse_idx)
-        # 更新map
-        collapse_map = collapse_map.at[collapse_idx].multiply(0)
-        collapse_map = collapse_map.at[neighbors].multiply(10)
-        # 更新邻居的概率
-        probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
-
-        if plot is not False:
-            if plot == '2d':
-                visualizer.add_frame(probs=probs)
-            if plot == "3d":
-                #TODO 3D visualizer here
-                pass
+        
+        probs = update_by_neighbors(
+                    probs, collapse_idx, A, D, dirs_opposite_index, 
+                    tileHandler.compatibility, init_probs=init_probs # 传入初始概率
+                )
+        
+        # 2. 更新邻居概率（用邻接矩阵）
+        probs = update_neighbors(
+            probs, collapse_idx, A, D, 
+            tileHandler.compatibility
+        )
+        
         pbar.update(1)
-        if pbar.n > pbar.total:
-            pbar.set_description_str("fixing high entropy")
+    
     pbar.close()
     return probs, 0, collapse_list
 

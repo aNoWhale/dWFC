@@ -460,7 +460,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     (`ref <https://doi.org/10.1016/j.compstruc.2018.01.008>`_).
     """
     # stop condition
-    tol_obj = optimizationParams.get('tol_obj', 1e-5)
+    tol_obj = optimizationParams.get('tol_obj', 1e-6)
     tol_design = optimizationParams.get('tol_design', 1e-1)
     tol_con = optimizationParams.get('tol_con', 1e-1)
     min_iters = optimizationParams.get('min_iters', 10)
@@ -542,16 +542,16 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # temperature = 1
             # rho = jax.nn.softmax(rho / temperature, axis=-1)
-            rho_c_physical = applyDensityFilter(ft, rho)
-            return rho_c_physical
+            # rho_c_physical = applyDensityFilter(ft, rho)
+            return rho
 
         # 1. 先计算一次正向结果（包含WFC调用）
-        rho_f = filter_chain(rho, ft_rough, WFC, ft, loop)
+        # rho_f = filter_chain(rho, ft_rough, WFC, ft, loop)
 
 
-        rho_small = rho + 1e-6 * jax.random.normal(jax.random.PRNGKey(0), rho.shape)
-        rho_f_small = filter_chain(rho_small, ft_rough, WFC, ft, loop)
-        print("rho_f变化量：", jnp.linalg.norm(rho_f_small - rho_f))  # 应为非零值
+        # rho_small = rho + 1e-6 * jax.random.normal(jax.random.PRNGKey(0), rho.shape)
+        # rho_f_small = filter_chain(rho_small, ft_rough, WFC, ft, loop)
+        # print("rho_f变化量：", jnp.linalg.norm(rho_f_small - rho_f))  # 应为非零值
 
         # 计算filter_chain对rho的梯度（验证梯度非零）
         grad_filter = jax.grad(lambda r: jnp.sum(filter_chain(r, ft_rough, WFC, ft, loop)))(rho)

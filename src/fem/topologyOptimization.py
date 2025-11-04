@@ -14,7 +14,7 @@ import jax
 import jax_smi
 jax_smi.initialise_tracking()
 # jax.config.update('jax_disable_jit', True)
-# jax.config.update("jax_enable_x64", True)
+jax.config.update("jax_enable_x64", True)
 from functools import partial
 import jax.numpy as np
 # 获取当前文件所在目录
