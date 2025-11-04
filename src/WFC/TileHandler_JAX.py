@@ -179,7 +179,7 @@ class TileHandler:
         return self._compatibility
 
     def constantlize_compatibility(self) -> None:
-        self._compatibility = jnp.array(self._compatibility, dtype=jnp.float32)
+        self._compatibility = jnp.maximum(jnp.array(self._compatibility, dtype=jnp.float32), 1e-5)
 
     # -------------------------- 6. 类型索引转换（保持原逻辑） --------------------------
     def get_name_by_index(self, index: int) -> str:

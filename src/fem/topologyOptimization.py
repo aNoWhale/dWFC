@@ -14,7 +14,7 @@ import jax
 import jax_smi
 jax_smi.initialise_tracking()
 # jax.config.update('jax_disable_jit', True)
-jax.config.update("jax_enable_x64", True)
+# jax.config.update("jax_enable_x64", True)
 from functools import partial
 import jax.numpy as np
 # 获取当前文件所在目录
@@ -32,11 +32,12 @@ from jax_fem.mma import optimize
 from src.fem.SigmaInterpreter import SigmaInterpreter
 from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
-from src.WFC.iterateWaveFunctionCollapseFilter import waveFunctionCollapse
+from src.WFC.WFCFilter_JAX import waveFunctionCollapse
 
 
 # Do some cleaning work. Remove old solution files.
 # data_path = os.path.join(os.path.dirname(__file__), 'data')
+print(f"{jax.devices()}")
 data_path ='data'
 
 files = glob.glob(os.path.join(data_path, f'vtk/*'))
@@ -61,19 +62,6 @@ class Elasticity(Problem):
         def stress(u_grad, weights):
             # Plane stress assumption
             # Reference: https://en.wikipedia.org/wiki/Hooke%27s_law
-            # Emax = 70.e3
-            # Emin = 1e-3*Emax
-            # nu = 0.3
-            # penal = 3.
-            # E = Emin + (Emax - Emin)*theta[0]**penal
-            # epsilon = 0.5*(u_grad + u_grad.T)
-            # eps11 = epsilon[0, 0]
-            # eps22 = epsilon[1, 1]
-            # eps12 = epsilon[0, 1]
-            # sig11 = E/(1 + nu)/(1 - nu)*(eps11 + nu*eps22)
-            # sig22 = E/(1 + nu)/(1 - nu)*(nu*eps11 + eps22)
-            # sig12 = E/(1 + nu)*eps12
-            # sigma = np.array([[sig11, sig12], [sig12, sig22]])
             sigma = self.sigmaInterpreter(u_grad,weights)
             return sigma
         return stress
@@ -173,40 +161,16 @@ class Elasticity(Problem):
         weights = jax.lax.stop_gradient(self.internal_vars[0])  # (num_cells, num_quads, tiletypes)
         u_grad = jax.lax.stop_gradient(self.fe.sol_to_grad(sol))  # 4维：(num_cells, num_quads, dim, dim)
         sigma = jax.lax.stop_gradient(self.sigmaInterpreter(u_grad, weights))  # 4维：(num_cells, num_quads, dim, dim)
-        
-        # --------------------------
-        # 关键：适配4维数组的轴索引（0-3）
-        # --------------------------
         dim = self.dim  # 3（三维问题）
-        
-        # 1. 计算应力张量的迹（最后两维是dim, dim，对应axis1=2, axis2=3）
         sigma_tr = np.trace(sigma, axis1=2, axis2=3)  # 形状：(num_cells, num_quads)
-        
-        # 2. 应力球张量（扩展维度匹配4维sigma）
-        # 扩展为 (num_cells, num_quads, 1, 1)，与sigma的(dim, dim)广播
         sigma_spherical = (sigma_tr / dim)[..., None, None] * np.eye(dim)[None, None, :, :]  # 4维：(num_cells, num_quads, dim, dim)
-        
-        # 3. 应力偏量
         s_dev = sigma - sigma_spherical  # 4维：(num_cells, num_quads, dim, dim)
-        
-        # 4. 高斯点冯·米塞斯应力（对最后两维求和：axis=(2,3)）
         vm_gauss = np.sqrt(3. / 2. * np.sum(s_dev **2, axis=(2, 3)))  # 形状：(num_cells, num_quads)
-        
-        # --------------------------
-        # 积分加权计算（确保形状匹配）
-        # --------------------------
         cells_JxW = self.JxW[:, 0, :]  # 形状：(num_cells, num_quads)
-        
-        # 单元体积（对num_quads维度求和：axis=1）
         cell_volumes = np.sum(cells_JxW, axis=1)  # 形状：(num_cells,)
-        
-        # 单元平均冯·米塞斯应力（对num_quads维度求和：axis=1）
         cell_vm = np.sum(vm_gauss * cells_JxW, axis=1) / cell_volumes  # 形状：(num_cells,)
-        
-        # 全局平均冯·米塞斯应力
         total_volume = np.sum(cells_JxW)
         avg_vm = np.sum(vm_gauss * cells_JxW) / total_volume  # 标量
-        
         return {
             'cell_von_mises': cell_vm,
             'avg_von_mises': avg_vm,
@@ -237,12 +201,12 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['BCC','FCCtube','FCCnp2dpillar'], 
+tileHandler = TileHandler(typeList=['BCC','void'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.setConnectiability(fromTypeName='BCC',toTypeName=["FCCtube",'FCCnp2dpillar'],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='FCCtube', toTypeName="FCCnp2dpillar", direction="isotropy",value=1,dual=True)
-tileHandler.selfConnectable(typeName=['BCC','FCCtube','FCCnp2dpillar'],value=1)
+tileHandler.setConnectiability(fromTypeName='BCC',toTypeName=['void'],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='FCCtube', toTypeName="FCCnp2dpillar", direction="isotropy",value=1,dual=True)
+tileHandler.selfConnectable(typeName=['BCC','void'],value=1)
 print(tileHandler)
 tileHandler.constantlize_compatibility()
 sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/C",debug=False)
@@ -301,10 +265,10 @@ def objectiveHandle(rho):
     return J, dJ
 
 vf0 = 0.35
-vf1 = 0.35
-vf2 = 0.35
+# vf1 = 0.35
+# vf2 = 0.35
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
-numConstraints = 3
+numConstraints = 1
 def consHandle(rho):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
@@ -312,50 +276,34 @@ def consHandle(rho):
     # def computeGlobalVolumeConstraint(rho):
     #     g = np.mean(rho)/vf1 - 1.
     #     return g
-    c0, gradc0 = jax.value_and_grad(lambda rho: np.mean(rho[...,0])/vf0 - 1.)(rho)
-    c1, gradc1 = jax.value_and_grad(lambda rho: np.mean(rho[...,1])/vf1 - 1.)(rho)
-    c2, gradc2 = jax.value_and_grad(lambda rho: np.mean(rho[...,2])/vf2 - 1.)(rho)
+    c0, gradc0 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,0])-vf0),3) )(rho)
+    # c1, gradc1 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,1])-vf1),3) )(rho)
+    # c2, gradc2 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,2])-vf2),3) )(rho)
 
-    # def computeCellMaximumEntropy(rho):
-    #     cell_max_p = np.max(rho, axis=-1)
-    #     modified_e = -cell_max_p * np.log2(cell_max_p)+(1-cell_max_p)
-    #     mean=np.mean(modified_e)
-    #     ec=mean/ea
-    #     return ec
-    # ec, gradea = jax.value_and_grad(computeCellMaximumEntropy)(rho)
-    print(f"mean0: {np.mean(rho[...,0])}")
-    print(f"mean1: {np.mean(rho[...,1])}")
-    print(f"mean2: {np.mean(rho[...,2])}")
-    # print(f"c0:{c0}\nc1:{c1}\nc2:{c2}")
-    c=np.array([c0, c1, c2])
-    gradc=np.array([ gradc0, gradc1, gradc2])
+
+    c=np.array([c0])
+    gradc=np.array([ gradc0])
     # print(f"c.shape:{c.shape}")
     # print(f"gradc.shape:{gradc.shape}")
     c = c.reshape((-1,))
     return c, gradc
 
 adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
-wfc=lambda prob, loop ,*args, **kwargs: waveFunctionCollapse(prob, adj, tileHandler,loop,args,kwargs)
+from src.WFC.iterateWaveFunctionCollapseFilter import preprocess_adjacency
+# 预构建邻接矩阵和方向矩阵（仅一次）
+A, D = preprocess_adjacency(adj, tileHandler)
+wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
 optimizationParams = {'maxIters':101, 'movelimit':1.0, 'NxNyNz':(Nx,Ny,Nz)}
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
-# rho_ini1 = np.ones((Nx,Ny,Nz,1),dtype=np.float64)
-# rho_ini0 = np.zeros((Nx,Ny,Nz,tileHandler.typeNum-1),dtype=np.float64)
-# rho_ini = np.concatenate((rho_ini1,rho_ini0),axis=-1).reshape(-1,tileHandler.typeNum)
 
-# print(f"rho_ini.shape{rho_ini.shape}")
-# try:
 rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
-# except Exception as e:
-#     # 捕获所有异常，打印错误信息
-#     print("something wrong.")
-#     print(f"{str(e)}")
 
 np.save("data/npy/rho_oped",rho_oped)
-# print(f"As a reminder, compliance = {J_total(np.ones((len(problem.fe.flex_inds), 1)))} for full material")
+
 
 # Plot the optimization results.
 obj = onp.array(outputs)

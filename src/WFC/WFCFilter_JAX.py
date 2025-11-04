@@ -23,60 +23,6 @@ from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.builder import visualizer_2D,Visualizer
 from src.WFC.FigureManager import FigureManager
 
-
-
-# @jax.jit
-def get_neighbors(csr, index):
-    """获取指定索引的邻居列表"""
-    start = csr['row_ptr'][index]
-    end = csr['row_ptr'][index + 1]
-    neighbors = csr['col_idx'][start:end]
-    neighbors_dirs = csr['directions'][start:end]
-    return neighbors, neighbors_dirs
-
-
-
-
-
-@partial(jax.jit, static_argnames=())
-def update_by_neighbors(probs, collapse_idx, A, D, dirs_opposite_index, compatibility, init_probs, alpha=0.3):
-    n_cells, n_tiles = probs.shape
-    # 1. 生成当前单元的软掩码
-    collapse_mask = soft_mask(collapse_idx, n_cells, sigma=0.5)  # 软掩码
-    collapse_mask = collapse_mask / jnp.sum(collapse_mask)  # 归一化权重
-    
-    # 2. 提取邻居和方向
-    neighbor_mask = A[:, collapse_idx]  # (n_cells,)
-    neighbor_dirs = D[:, collapse_idx].astype(jnp.int32)  # 确保整数类型
-    valid_dirs = (neighbor_dirs * neighbor_mask).astype(jnp.int32)  # 有效方向索引
-    
-    # 3. 计算兼容性（添加可微噪声打破常数壁垒）
-    opposite_dirs = jnp.take(dirs_opposite_index, valid_dirs, mode='clip')
-    compat = jnp.take(compatibility, opposite_dirs, axis=0)
-    noise = jax.random.normal(jax.random.PRNGKey(42), compat.shape) * 1e-5  # 可微噪声
-    compat = jnp.clip(compat + noise, 1e-8, None)  # 确保≥1e-8
-    
-    # 4. 计算更新因子
-    neighbor_probs = probs * neighbor_mask[:, None]
-    update_factors = jnp.einsum('cij, cj -> ci', compat, neighbor_probs)
-    # cumulative_factor = jnp.prod(update_factors + (1 - neighbor_mask[:, None]), axis=0)
-    update_factors = jnp.clip(update_factors, 1e-8, None)  # 确保≥1e-8
-    # 重新计算log_factors，增强安全边际
-    log_factors = jnp.log(update_factors + (1 - neighbor_mask[:, None]) + 1e-8)
-    cumulative_factor = jnp.exp(jnp.sum(log_factors, axis=0))  # 指数还原为乘积 
-    
-    # 5. 更新当前单元概率（强化初始概率的依赖）
-    p_updated = probs[collapse_idx] * cumulative_factor
-    # 关键：通过混合初始概率增强梯度传递（替代原无效梯度注入）
-    p_updated = (1 - alpha) * p_updated + alpha * init_probs[collapse_idx]  # 提高alpha权重
-    # p_updated = soft_normalize(p_updated, temp=0.5)  # 放宽归一化
-    p_updated = normalize_minmax(p_updated, axis=-1)
-    
-    
-    # 6. 软更新
-    return probs * (1 - collapse_mask[:, None]) + p_updated * collapse_mask[:, None]
-
-
 def preprocess_adjacency(adj_csr, tileHandler):
     """
     修复：从 TileHandler 中正确提取方向字符串列表，避免访问不存在的 'direction' 属性
@@ -120,6 +66,65 @@ def preprocess_adjacency(adj_csr, tileHandler):
     return A, D
 
 
+# @jax.jit
+def get_neighbors(csr, index):
+    """获取指定索引的邻居列表"""
+    start = csr['row_ptr'][index]
+    end = csr['row_ptr'][index + 1]
+    neighbors = csr['col_idx'][start:end]
+    neighbors_dirs = csr['directions'][start:end]
+    return neighbors, neighbors_dirs
+
+
+
+
+
+@partial(jax.jit, static_argnames=())
+def update_by_neighbors(probs, collapse_idx, A, D, dirs_opposite_index, compatibility, init_probs, alpha=0.6):
+    n_cells, n_tiles = probs.shape
+    # 1. 生成当前单元的软掩码
+    collapse_mask = soft_mask(collapse_idx, n_cells, sigma=0.5)  # 软掩码
+    collapse_mask = collapse_mask / jnp.sum(collapse_mask)  # 归一化权重
+    
+    # 2. 提取邻居和方向
+    neighbor_mask = A[:, collapse_idx]  # (n_cells,)
+    neighbor_dirs = D[:, collapse_idx].astype(jnp.int32)  # 确保整数类型
+    valid_dirs = (neighbor_dirs * neighbor_mask).astype(jnp.int32)  # 有效方向索引
+    
+    # 3. 计算兼容性（添加可微噪声打破常数壁垒）
+    opposite_dirs = jnp.take(dirs_opposite_index, valid_dirs, mode='clip')
+    compat = jnp.take(compatibility, opposite_dirs, axis=0)
+    key = jax.random.PRNGKey(jnp.mod(collapse_idx, 1000).astype(jnp.int32))  # 避免固定的key
+    noise = jax.random.normal(key, compat.shape) * 1e-6  # 减小噪声幅度
+    compat = jnp.clip(compat + noise, 1e-8, 1e8)  # 双向截断
+    
+    # 4. 计算更新因子（增强数值稳定性）
+    neighbor_probs = probs * neighbor_mask[:, None]
+    update_factors = jnp.einsum('cij, cj -> ci', compat, neighbor_probs)
+    # 关键：限制update_factors的范围，避免log输入过小
+    update_factors = jnp.clip(update_factors, 1e-10, 1e10)  # 缩小范围，避免极端值
+    # 计算log时进一步增加安全边际
+    log_factors = jnp.log(update_factors + (1 - neighbor_mask[:, None]) + 1e-10)
+    # 限制log的总和，避免exp溢出（e^50 ≈ 1e22，已足够大）
+    sum_log = jnp.clip(jnp.sum(log_factors, axis=0), -50, 50)  # 核心：防止exp溢出
+    cumulative_factor = jnp.exp(sum_log)  # 此时不会产生inf
+
+    # 5. 更新当前单元概率（限制范围）
+    p_updated = probs[collapse_idx] * cumulative_factor
+    p_updated = jnp.clip(p_updated, 1e-10, 1e10)  # 避免p_updated为0或inf
+    # 混合初始概率（保持梯度）
+    p_updated = (1 - alpha) * p_updated + alpha * init_probs[collapse_idx]
+    # 归一化时处理极端值
+    p_updated = normalize_minmax(p_updated, axis=-1)
+
+    
+    
+    # 6. 软更新
+    return probs * (1 - collapse_mask[:, None]) + p_updated * collapse_mask[:, None]
+
+
+
+
 @jax.jit
 def update_neighbors(probs, collapse_idx, A, D, compatibility):
     n_cells, n_tiles = probs.shape
@@ -131,175 +136,92 @@ def update_neighbors(probs, collapse_idx, A, D, compatibility):
     neighbor_mask = A[:, collapse_idx]  # (n_cells,)，邻居位置为1
     neighbor_dirs = D[:, collapse_idx]  # (n_cells,)，邻居的方向索引
     
-    # 3. 计算邻居的更新值（矩阵乘法实现）
-    compat = jnp.take(compatibility, neighbor_dirs, axis=0)  # (n_cells, n_tiles, n_tiles)
-    p_neigh = jnp.einsum('cij, j -> ci', compat, p_collapsed)  # (n_cells, n_tiles)
-    p_neigh = p_neigh * probs * neighbor_mask[:, None]  # 仅更新邻居
-    # p_neigh = soft_normalize(p_neigh, temp=0.1)  # 替换为软归一化
-    p_neigh = normalize_minmax(p_neigh, axis=-1)
+    # 3. 计算邻居的更新值（限制范围）
+    compat = jnp.take(compatibility, neighbor_dirs, axis=0)
+    compat = jnp.clip(compat, 1e-10, 1e10)  # 兼容性限制
+    p_neigh = jnp.einsum('cij, j -> ci', compat, p_collapsed)
+    p_neigh = jnp.clip(p_neigh, 1e-10, 1e10)  # 邻居概率限制
+    p_neigh = p_neigh * probs * neighbor_mask[:, None]
+    p_neigh = normalize_minmax(p_neigh, axis=-1)  # 使用增强版归一化
     
     # 4. 软更新邻居概率
     return probs * (1 - neighbor_mask[:, None]) + p_neigh * neighbor_mask[:, None]
 
 
-
-def sequential_collapse_idx(step, num_elements):
-    """按固定顺序返回当前坍缩单元的索引（第step步坍缩第step个单元）"""
-    return jnp.clip(step, 0, num_elements - 1)  # 确保索引不越界
-
-
+@jax.jit
 def soft_normalize(p, temp=1.0):  # 增大temp（如1.0），降低指数敏感度
     p = jnp.clip(p, -50, 50)  # 截断极端值，避免exp溢出（e^50 ≈ 1e22，仍可控）
     p_exp = jnp.exp(p / temp)
     return p_exp / (jnp.sum(p_exp, axis=-1, keepdims=True) + 1e-8)  # +1e-8避免除以零
 
-def normalize_minmax(x, axis=None, epsilon=1e-8):
-    """
-    Min-Max 归一化: (x - min) / (max - min)
-    将数据缩放到[0, 1]范围
-    参数:
-        x: jax.numpy.ndarray，输入数据
-        axis: 归一化的轴（如axis=0为按列归一化，None为全局归一化）
-        epsilon: 小值，避免除以0
-    返回:
-        归一化后的数据
-    """
-    min_val = jnp.min(x, axis=axis, keepdims=True)  # 计算最小值
-    max_val = jnp.max(x, axis=axis, keepdims=True)  # 计算最大值
-    return (x - min_val) / (max_val - min_val + epsilon)  # 避免最大值等于最小值导致的除零错误
 
+@partial(jax.jit, static_argnames=('axis',))
+def normalize_minmax(x, axis=None, epsilon=1e-10):
+    """增强版Min-Max归一化，处理极端值"""
+    # 替换NaN和inf为有限值
+    x = jnp.nan_to_num(x, nan=0.0, posinf=1e10, neginf=1e-10)
+    min_val = jnp.min(x, axis=axis, keepdims=True)
+    max_val = jnp.max(x, axis=axis, keepdims=True)
+    # 处理max == min的情况（避免除以0）
+    range_val = jnp.where(max_val == min_val, 1.0, max_val - min_val)
+    return (x - min_val) / (range_val + epsilon)
 
+@partial(jax.jit, static_argnames=('n_cells',))
 def soft_mask(index, n_cells, sigma=0.5):
     """生成以index为中心的高斯软掩码，sigma越小越接近硬掩码"""
     x = jnp.arange(n_cells)
     return jax.nn.sigmoid((- (x - index)**2) / (2 * sigma**2))
 
-def sync_waveFunctionCollapse(init_probs, adj_csr, tileHandler, loop):
-    """同步更新版本的WFC（仅用于反向传播）"""
+
+
+@jax.jit
+def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility):
     n_cells, n_tiles = init_probs.shape
-    probs = init_probs.copy()
-    A, D = preprocess_adjacency(adj_csr, tileHandler)
-    dirs_opposite_index = tileHandler.opposite_dir_array
-    compatibility = tileHandler.compatibility
+    # 检查并替换初始概率中的异常值
+    init_probs = jnp.nan_to_num(init_probs, nan=1e-10, posinf=1e10, neginf=1e-10)
+    init_probs = jnp.clip(init_probs, 1e-10, 1.0)  # 概率应在[0,1]附近
+    
+    # 检查兼容性矩阵（确保非负）
+    compatibility = jnp.clip(compatibility, 1e-10, 1e10)  # 兼容性不能为负
 
-    for _ in range(loop):  # 用loop控制同步迭代次数
-        # 同步更新所有单元（基于当前probs的原始值）
-        all_updated = jax.vmap(
-            lambda idx: compute_sync_update(probs, idx, A, D, dirs_opposite_index, compatibility, init_probs)
-        )(jnp.arange(n_cells))
-        # 应用更新
-        masks = jnp.eye(n_cells)[:, :, None]
-        probs = jnp.sum(masks * all_updated[:, None, :] + (1 - masks) * probs[None, :, :], axis=0)
-    return probs
-
-def compute_sync_update(probs, collapse_idx, A, D, dirs_opposite_index, compatibility, init_probs, alpha=0.3):
-    """同步更新中单个单元的计算（复用update_by_neighbors逻辑，但基于原始probs）"""
-    n_cells, n_tiles = probs.shape
-    collapse_mask = soft_mask(collapse_idx, n_cells, sigma=0.5)
-    collapse_mask = collapse_mask / jnp.sum(collapse_mask)
-    
-    neighbor_mask = A[:, collapse_idx]
-    neighbor_dirs = D[:, collapse_idx].astype(jnp.int32)
-    valid_dirs = (neighbor_dirs * neighbor_mask).astype(jnp.int32)
-    
-    opposite_dirs = jnp.take(dirs_opposite_index, valid_dirs, mode='clip')
-    compat = jnp.take(compatibility, opposite_dirs, axis=0)
-    noise = jax.random.normal(jax.random.PRNGKey(42), compat.shape) * 1e-4  # 增强噪声
-    compat = jnp.clip(compat + noise, 1e-8, None)  # 确保≥1e-8
-    
-    neighbor_probs = probs * neighbor_mask[:, None]  # 基于原始probs（非更新后的值）
-    update_factors = jnp.einsum('cij, cj -> ci', compat, neighbor_probs)
-    # cumulative_factor = jnp.prod(update_factors + (1 - neighbor_mask[:, None]), axis=0)
-    update_factors = jnp.clip(update_factors, 1e-8, None)  # 确保≥1e-8
-    # 重新计算log_factors，增强安全边际
-    log_factors = jnp.log(update_factors + (1 - neighbor_mask[:, None]) + 1e-8)
-    cumulative_factor = jnp.exp(jnp.sum(log_factors, axis=0))  # 指数还原为乘积
-    
-    p_updated = probs[collapse_idx] * cumulative_factor
-    p_updated = (1 - alpha) * p_updated + alpha * init_probs[collapse_idx]  # 强化初始依赖
-    # p_updated = soft_normalize(p_updated, temp=1.0)  # 放宽归一化
-    p_updated = normalize_minmax(p_updated,axis=-1)
-    return p_updated
-
-
-
-@jax.custom_vjp
-def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility) -> jnp.ndarray:
-    n_cells, n_tiles = init_probs.shape
-    probs = init_probs.copy()
-    collapse_list = []
-    
-    # 打印初始probs的均值（应随init_probs变化）
-    print("初始probs均值：", jnp.mean(probs))
-    
-    pbar = tqdm.tqdm(total=n_cells, desc="collapsing", unit="tiles")
-    for collapse_idx in range(n_cells):
-        collapse_list.append(collapse_idx)
-        # 保存更新前的probs
-        probs_before = probs.copy()
-        # 第一步更新：update_by_neighbors
-        probs = update_by_neighbors(
-            probs, collapse_idx, A, D, dirs_opposite_index, 
-            compatibility, init_probs=init_probs
+    # 第一步：所有单元格依据init_probs进行update_by_neighbors
+    def step1_update(carry, collapse_idx):
+        probs = carry
+        # 使用原始的update_by_neighbors函数
+        updated_probs = update_by_neighbors(
+            probs, collapse_idx, A, D, dirs_opposite_index, compatibility, init_probs
         )
-        # 打印第一步更新后的变化
-        # print(f"第{collapse_idx}步 update_by_neighbors 变化量：", 
-        #       jnp.linalg.norm(probs - probs_before))
-        
-        # 第二步更新：update_neighbors
-        probs_before2 = probs.copy()
-        probs = update_neighbors(probs, collapse_idx, A, D, compatibility)
-        # 打印第二步更新后的变化
-        # print(f"第{collapse_idx}步 update_neighbors 变化量：", 
-        #       jnp.linalg.norm(probs - probs_before2))
-        
-        pbar.update(1)
-    pbar.close()
+        return updated_probs, None
     
-    # 打印最终probs的均值（应随初始probs变化）
-    print("最终probs均值：", jnp.mean(probs))
-    return probs, 0, collapse_list
-
-
-
-
-
-def waveFunctionCollapse_fwd(init_probs, A, D, dirs_opposite_index, compatibility):
-    probs, max_entropy, collapse_list = waveFunctionCollapse(
-        init_probs, A, D, dirs_opposite_index, compatibility
+    # 初始化第一步的概率
+    probs_step1 = init_probs
+    # 用scan遍历所有单元格，执行update_by_neighbors
+    probs_step1, _ = jax.lax.scan(
+        step1_update,
+        init=probs_step1,
+        xs=jnp.arange(n_cells)
     )
-    # 残留值保存n_cells（WFC正向迭代次数），供反向传播使用
-    n_cells = init_probs.shape[0]  # 从输入形状获取单元数
-    residuals = (init_probs, A, D, dirs_opposite_index, compatibility, n_cells)
-    return (probs, max_entropy, collapse_list), residuals
-
-
-def waveFunctionCollapse_bwd(residuals, grad_output):
-    # 解析残留值，获取WFC正向迭代次数n_cells
-    init_probs, A, D, dirs_opposite_index, compatibility, n_cells = residuals
-    grad_probs, _, _ = grad_output
     
-    # 同步更新次数 = WFC正向迭代次数n_cells（确保梯度与正向逻辑匹配）
-    def sync_wfc(init_p):
-        probs = init_p.copy()
-        for _ in range(3):  # 用n_cells控制反向同步次数
-            all_updated = jax.vmap(
-                lambda idx: compute_sync_update(
-                    probs, idx, A, D, dirs_opposite_index, compatibility, init_p
-                )
-            )(jnp.arange(n_cells))
-            masks = jnp.eye(n_cells)[:, :, None]
-            probs = jnp.sum(masks * all_updated[:, None, :] + (1 - masks) * probs[None, :, :], axis=0)
-        return probs
+    # 第二步：每个单元格依据probs_step1进行update_neighbors
+    def step2_update(carry, collapse_idx):
+        probs = carry
+        # 使用原始的update_neighbors函数
+        updated_probs = update_neighbors(probs, collapse_idx, A, D, compatibility)
+        return updated_probs, None
     
-    grad_init = jax.grad(lambda p: jnp.sum(sync_wfc(p) * grad_probs))(init_probs)
-    # 梯度结构与原始参数匹配（5个参数）
-    grads = (grad_init, None, None, None, None)
-    return grads
+    # 用scan遍历所有单元格，执行update_neighbors
+    final_probs, _ = jax.lax.scan(
+        step2_update,
+        init=probs_step1,
+        xs=jnp.arange(n_cells)
+    )
+    
+    collapse_list = jnp.arange(n_cells)
+    return final_probs, 0, collapse_list
 
 
-# 4. 绑定正向/反向函数
-waveFunctionCollapse.defvjp(waveFunctionCollapse_fwd, waveFunctionCollapse_bwd)
+
+
 
 
 if __name__ == "__main__":

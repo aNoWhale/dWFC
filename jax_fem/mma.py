@@ -508,91 +508,53 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print(f"MMA solver...")
         print(f"collapsing...")
         print(f"rho.shape: {rho.shape}")
-        # prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum),)
-        # prob_collapsed=rho
-        # rho_c = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
 
-        # #粗过滤
-        # if density_filtering_1:
-        #     rho_rough = applyDensityFilter(ft_rough, rho)
-        # else:
-        #     rho_rough = rho
-
-        # if wfc:
-        #     prob_collapsed,_,_=WFC(rho_rough.reshape(-1,tileNum),loop)
-        #     # prob_collapsed = prob_collapsed.reshape((Nx,Ny,Nz,tileNum))
-        #     # prob_collapsed = prob_collapsed.at[:,-1,0,:].set(0)
-        #     # prob_collapsed = prob_collapsed.at[:,-1,0,0].set(1)
-        #     rho_c = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
-        #     # temperature = 1 + 1 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5)))
-        #     temperature = 1
-        #     rho_c = jax.nn.softmax(rho_c / temperature, axis=-1)
-        # else:
-        #     rho_c = rho_rough.reshape(-1,tileNum)
-
-        # #细过滤
-        # if density_filtering_2:
-        #     rho_c_physical = applyDensityFilter(ft, rho_c)
-        # else:
-        #     rho_c_physical = rho_c
-
-        def filter_chain(rho,ft_rough,WFC,ft,loop):
+        def filter_chain(rho,ft_rough,WFC,ft):
             rho = applyDensityFilter(ft_rough, rho)
-            prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum),loop)
+            prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum))
+
             rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # temperature = 1
             # rho = jax.nn.softmax(rho / temperature, axis=-1)
             # rho_c_physical = applyDensityFilter(ft, rho)
             return rho
 
+
         # 1. 先计算一次正向结果（包含WFC调用）
-        # rho_f = filter_chain(rho, ft_rough, WFC, ft, loop)
+        rho_f = filter_chain(rho, ft_rough, WFC, ft)
 
-
-        # rho_small = rho + 1e-6 * jax.random.normal(jax.random.PRNGKey(0), rho.shape)
-        # rho_f_small = filter_chain(rho_small, ft_rough, WFC, ft, loop)
-        # print("rho_f变化量：", jnp.linalg.norm(rho_f_small - rho_f))  # 应为非零值
-
-        # 计算filter_chain对rho的梯度（验证梯度非零）
-        grad_filter = jax.grad(lambda r: jnp.sum(filter_chain(r, ft_rough, WFC, ft, loop)))(rho)
-        print("filter_chain梯度范数：", jnp.linalg.norm(grad_filter))  # 应为非零值
+        print("rho_f 均值：", jnp.mean(rho_f))
+        print("rho_f 是否有NaN：", jnp.isnan(rho_f).any())
+        print("rho_f 最小值：", jnp.min(rho_f))
+        print("rho_f 最大值：", jnp.max(rho_f))
         
-        # 2. 定义一个复用rho_f的函数（仅用于VJP，避免重复计算WFC）
-        def rho_r_reuse(r):
-            # 用stop_gradient固定rho_f，避免VJP重新计算filter_chain
-            return jax.lax.stop_gradient(rho_f)
+        # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
+        def filter_chain_vjp(r):
+            return filter_chain(r, ft_rough, WFC, ft)
 
-        # 3. 对复用函数构建VJP（此时不会重新执行WFC）
-        _, vjp_fn = jax.vjp(rho_r_reuse, rho)
+        # 构建VJP：fwd_func返回(rho_f, vjp_fn)，其中vjp_fn用于计算梯度
+        rho_f_vjp, vjp_fn = jax.vjp(filter_chain_vjp, rho)
 
-        # 4. 计算下游梯度并应用链式法则
-        J, dJ_drho_f = objectiveHandle(rho_f)
-        vc, dvc_drho_f = consHandle(rho_f)
-
+        # 3. 计算下游梯度并应用链式法则（此时vjp_fn会正确传递梯度）
+        J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
+        vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
+        print("目标函数对rho_f的梯度范数：", jnp.linalg.norm(dJ_drho_f))
+        # 关键：用vjp_fn计算rho对rho_f的梯度，再乘以dJ_drho_f（链式法则）
         dJ_drho = vjp_fn(dJ_drho_f)[0]
-        vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)  # 对第0维（约束维度）批量处理
-        dvc_drho = vjp_batch(dvc_drho_f)[0]  # 直接得到形状：(3, rho.shape)
+        vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
+        dvc_drho = vjp_batch(dvc_drho_f)[0]
 
-        # J, dJ_drho_f = value_and_grad(lambda x: objectiveHandle(x)[0])(rho_f)
-        # dJ_drho = jnp.dot(dJ_drho_f.ravel(),jax.jacobian(lambda r: filter_chain(r, ft_rough, WFC, ft, loop))(rho).reshape(rho_f.size, rho.size))
-        # # 约束
-        # vc, dvc_drho_f = value_and_grad(lambda x: consHandle(x, loop)[0])(rho_f)
-        # dvc_drho = jnp.tensordot(dvc_drho_f,jax.jacobian(lambda r: filter_chain(r, ft_rough, WFC, ft, loop))(rho).reshape(rho_f.size, rho.size),axes=(1, 0))
         dJ=dJ_drho
         dvc=dvc_drho
         if sensitivity_filtering:
             dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
-
+        rho_small = rho + 1e-4 * jnp.ones_like(rho)
+        rho_filtered = applyDensityFilter(ft_rough, rho)
+        rho_filtered_small = applyDensityFilter(ft_rough, rho_small)
+        print("滤波后变化量：", jnp.linalg.norm(rho_filtered_small - rho_filtered))
         J, dJ = J, dJ.reshape(-1)[:, None]
         vc, dvc = vc[:, None], dvc.reshape(dvc.shape[0], -1)
 
-        # print(f"J.shape = {J.shape}")
-        # print(f"dJ.shape = {dJ.shape}")
-        # print(f"vc.shape = {vc.shape}")
-        # print(f"dvc.shape = {dvc.shape}")
-
-        # print(f"rho_ini.shape = {rho_ini.shape}")
-        # print(f"rho_physical.shape = {rho_c_physical.shape}")
         print(f"dJ.max: {np.max(dJ)}")
         print(f"dJ.min: {np.min(dJ)}")
 
