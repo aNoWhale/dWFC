@@ -80,10 +80,10 @@ def get_neighbors(csr, index):
 
 
 @partial(jax.jit, static_argnames=())
-def update_by_neighbors(probs, collapse_idx, A, D, dirs_opposite_index, compatibility, init_probs, alpha=0.6):
+def update_by_neighbors(probs, collapse_idx, A, D, dirs_opposite_index, compatibility, init_probs, alpha=0.3):
     n_cells, n_tiles = probs.shape
     # 1. 生成当前单元的软掩码
-    collapse_mask = soft_mask(collapse_idx, n_cells, sigma=0.5)  # 软掩码
+    collapse_mask = soft_mask(collapse_idx, n_cells)  # 软掩码
     collapse_mask = collapse_mask / jnp.sum(collapse_mask)  # 归一化权重
     
     # 2. 提取邻居和方向
@@ -115,7 +115,8 @@ def update_by_neighbors(probs, collapse_idx, A, D, dirs_opposite_index, compatib
     # 混合初始概率（保持梯度）
     p_updated = (1 - alpha) * p_updated + alpha * init_probs[collapse_idx]
     # 归一化时处理极端值
-    p_updated = normalize_minmax(p_updated, axis=-1)
+    # p_updated = normalize_minmax(p_updated, axis=-1)
+    p_updated = normalize(p_updated)  # 归一化
 
     
     
@@ -142,7 +143,8 @@ def update_neighbors(probs, collapse_idx, A, D, compatibility):
     p_neigh = jnp.einsum('cij, j -> ci', compat, p_collapsed)
     p_neigh = jnp.clip(p_neigh, 1e-10, 1e10)  # 邻居概率限制
     p_neigh = p_neigh * probs * neighbor_mask[:, None]
-    p_neigh = normalize_minmax(p_neigh, axis=-1)  # 使用增强版归一化
+    p_neigh = normalize(p_neigh)  # 归一化
+
     
     # 4. 软更新邻居概率
     return probs * (1 - neighbor_mask[:, None]) + p_neigh * neighbor_mask[:, None]
@@ -166,8 +168,19 @@ def normalize_minmax(x, axis=None, epsilon=1e-10):
     range_val = jnp.where(max_val == min_val, 1.0, max_val - min_val)
     return (x - min_val) / (range_val + epsilon)
 
+@jax.jit
+def soft_max(p, temp=0.5):  # 温度从1.0降至0.5
+    p = jnp.clip(p, -50, 50)
+    p_exp = jnp.exp(p / temp)
+    return p_exp / (jnp.sum(p_exp, axis=-1, keepdims=True) + 1e-8)
+
+def normalize(p):
+    # normalize_minmax(p, axis=-1)
+    return soft_max(p, temp=0.5)
+
+
 @partial(jax.jit, static_argnames=('n_cells',))
-def soft_mask(index, n_cells, sigma=0.5):
+def soft_mask(index, n_cells, sigma=0.2):
     """生成以index为中心的高斯软掩码，sigma越小越接近硬掩码"""
     x = jnp.arange(n_cells)
     return jax.nn.sigmoid((- (x - index)**2) / (2 * sigma**2))
@@ -319,7 +332,7 @@ if __name__ == "__main__":
     
     visualizer.collapse_list=collapse_list
     visualizer.draw()
-    visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManager,epoch='end')
+    visualizer_2D(tileHandler=tileHandler,probs=probs,points=adj['vertices'],figureManager=figureManager,epoch='end') # pyright: ignore[reportArgumentType]
     pattern = jnp.argmax(probs, axis=-1, keepdims=False).reshape(width,height)
     name_pattern = tileHandler.pattern_to_names(pattern)
     print(f"pattern: \n{name_pattern}")

@@ -1,11 +1,11 @@
 # Import some useful modules.
 import sys
-import numpy as onp
 
 import os
-
-
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
+os.environ["JAX_PLATFORMS"] = "cpu"
+import numpy as onp
+
 import glob
 import matplotlib.pyplot as plt
 from pathlib import Path

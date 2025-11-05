@@ -1,7 +1,7 @@
 
 import numpy as np  
 from src.WFC.FigureManager import FigureManager
-from src.WFC.TileHandler import TileHandler
+from src.WFC.TileHandler_JAX import TileHandler
 import tqdm
 
 def visualizer_2D(tileHandler:TileHandler,probs:np.array,points:np.array,figureManager:FigureManager=None,epoch=0,prefix:str="",*args,**kwargs):
