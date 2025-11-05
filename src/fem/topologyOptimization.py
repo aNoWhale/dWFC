@@ -32,7 +32,7 @@ from jax_fem.mma import optimize
 from src.fem.SigmaInterpreter import SigmaInterpreter
 from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
-from src.WFC.WFCFilter_JAX import waveFunctionCollapse
+from src.WFC.WFCFilter_JAX_log import waveFunctionCollapse
 
 
 # Do some cleaning work. Remove old solution files.
