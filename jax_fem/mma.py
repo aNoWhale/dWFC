@@ -524,13 +524,8 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             return rho
 
 
-        # 1. 先计算一次正向结果（包含WFC调用）
         print(f"filtering...")
-        rho_f = filter_chain(rho, ft_rough, WFC, ft)
-
-        print("rho_f 均值：", jnp.mean(rho_f))
-        print("rho_f 最小值：", jnp.min(rho_f))
-        print("rho_f 最大值：", jnp.max(rho_f))
+       
         
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):
@@ -538,7 +533,12 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         # 构建VJP：fwd_func返回(rho_f, vjp_fn)，其中vjp_fn用于计算梯度
         rho_f_vjp, vjp_fn = jax.vjp(filter_chain_vjp, rho)
-
+         # 1. 先计算一次正向结果（包含WFC调用）
+        # rho_f = filter_chain(rho, ft_rough, WFC, ft)
+        rho_f = rho_f_vjp
+        print("rho_f 均值：", jnp.mean(rho_f))
+        print("rho_f 最小值：", jnp.min(rho_f))
+        print("rho_f 最大值：", jnp.max(rho_f))
         # 3. 计算下游梯度并应用链式法则（此时vjp_fn会正确传递梯度）
         J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
         vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
