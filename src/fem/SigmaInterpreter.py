@@ -45,7 +45,7 @@ class SigmaInterpreter:
         orig_k1 = self.inv_order[k + 1]
 
         # 4. 局部线性坐标 + Ordered-RAMP
-        beta = 0.3  #刚才是1
+        beta = 1.  #刚才是1
         a_k, a_k1 = self.a_aux[k], self.a_aux[k + 1]
         xi = (x_e - a_k) / (a_k1 - a_k + 1e-12)
         xi_p = xi / (1 + beta * (1 - xi))

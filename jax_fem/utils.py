@@ -4,6 +4,10 @@ import meshio
 import json
 import os
 import time
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+
 from functools import wraps
 
 from jax_fem import logger
@@ -244,7 +248,8 @@ class Jplotter:
         # 刷新绘图
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-        plt.pause(0.01)  # 短暂暂停确保图像更新
+        # print(f"{matplotlib.get_backend()}")
+        plt.pause(0.01)
 
     def finalize(self):
         """优化结束后保持图像显示"""

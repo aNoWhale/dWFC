@@ -480,7 +480,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     J_list=[]
     con_violation_last = 0
 
-    H_r, Hs_r = compute_filter_kd_tree(fe,r_factor = 1.5)
+    H_r, Hs_r = compute_filter_kd_tree(fe,r_factor = 1.2)
     ft_rough = {'H':H_r, 'Hs':Hs_r}
     H, Hs = compute_filter_kd_tree(fe,r_factor = 1)
     ft = {'H':H, 'Hs':Hs}
@@ -625,5 +625,5 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         con_violation_last = con_violation
         
     jplotter.finalize()
-    print(f"Total optimization time: {time.strftime("%H:%M:%S", time.gmtime(time.time()-allstart))} [s]")
+    print(f"Total optimization time: {time.strftime('%H:%M:%S', time.gmtime(time.time()-allstart))} [s]")
     return rho,J_list
