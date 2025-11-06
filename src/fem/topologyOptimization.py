@@ -18,8 +18,8 @@ import meshio
 import jax
 import jax_smi
 jax_smi.initialise_tracking()
-# jax.config.update('jax_disable_jit', True)
-# jax.config.update("jax_enable_x64", True)
+jax.config.update('jax_disable_jit', True)
+jax.config.update("jax_enable_x64", True)
 from functools import partial
 import jax.numpy as np
 # 获取当前文件所在目录
@@ -299,7 +299,7 @@ wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array
 optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
 
 
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.5
 
 rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
 create_directory_if_not_exists("data/npy")

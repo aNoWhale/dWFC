@@ -33,12 +33,13 @@ class SigmaInterpreter:
             return stress(u_grad)
         
         # 1. 自动计算void概率：1 - 其他材料概率总和（确保权重和为1）
-        sum_weights = np.sum(weights, axis=-1, keepdims=True)  # 外部材料概率和：(n,1)
+        sum_weights = np.sum(weights, axis=-1, keepdims=True)  # 外部材料概率和：(1)
         void_weight = 1.0 - sum_weights  # void概率：(n,1)
-        full_weights = np.concatenate([weights, void_weight], axis=-1)  # 完整权重：(n, tileNum+1)（含void）
+        void_weight = np.clip(void_weight, 0.0, 1.0)  # 避免负值
+        full_weights = np.concatenate([weights, void_weight], axis=-1)  # 完整权重：(tileNum+1)（含void）
         
         # 2. 计算加权特征值x_e（包含void的概率）
-        x_e = np.sum(full_weights * self.a_aux[self.inv_order][None, :], axis=-1)  # (n,)
+        x_e = np.sum(full_weights * self.a_aux[self.inv_order], axis=-1)  # (1,)
         
         # 3. 区间选择（自然包含void的区间）
         k = np.searchsorted(self.a_aux, x_e, side='right') - 1

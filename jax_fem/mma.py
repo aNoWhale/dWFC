@@ -518,10 +518,10 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print("rho 最大值：", jnp.max(rho))
 
         def filter_chain(rho,ft_rough,WFC,ft):
-            rho = applyDensityFilter(ft_rough, rho)
-            jax.debug.print("DensityFilter 均值：{a}", a=jnp.mean(rho))
-            jax.debug.print("DensityFilter 最小值：{a}", a=jnp.min(rho))
-            jax.debug.print("DensityFilter 最大值：{a}", a=jnp.max(rho))
+            # rho = applyDensityFilter(ft_rough, rho)
+            # jax.debug.print("DensityFilter 均值：{a}", a=jnp.mean(rho))
+            # jax.debug.print("DensityFilter 最小值：{a}", a=jnp.min(rho))
+            # jax.debug.print("DensityFilter 最大值：{a}", a=jnp.max(rho))
             # rho,_,_=WFC(rho.reshape(-1,tileNum))
 
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
@@ -546,19 +546,23 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print("rho_f 均值：", jnp.mean(rho_f))
         print("rho_f 最小值：", jnp.min(rho_f))
         print("rho_f 最大值：", jnp.max(rho_f))
+        
         # 3. 计算下游梯度并应用链式法则（此时vjp_fn会正确传递梯度）
         J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
         vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
         print("目标函数对rho_f的梯度范数：", jnp.linalg.norm(dJ_drho_f))
+        print(f"dJ_drho_f.shape: {dJ_drho_f.shape}\ndvc.shape: {dvc_drho_f.shape}")
         # 关键：用vjp_fn计算rho对rho_f的梯度，再乘以dJ_drho_f（链式法则）
         dJ_drho = vjp_fn(dJ_drho_f)[0]
         vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
         dvc_drho = vjp_batch(dvc_drho_f)[0]
+        print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc.shape: {dvc_drho.shape}")
 
         dJ=dJ_drho
         dvc=dvc_drho
         if sensitivity_filtering:
             dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
+        print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
 
 
         J, dJ = J, dJ.reshape(-1)[:, None]
