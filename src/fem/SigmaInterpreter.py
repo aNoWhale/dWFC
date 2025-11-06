@@ -27,21 +27,6 @@ class SigmaInterpreter:
             self._buildCache() 
     
 
-    # def __call__(self,u_grad,weights,*args,**kwargs) -> None:
-
-    #     if self.debug:
-    #         return stress(u_grad)
-    #     else:
-    #         # jax.debug.print("weight: {a}", a=weights)
-    #         p=3
-    #         q=1
-    #         eps = 1e-6
-    #         Cmin = eps*np.max(self.C)
-    #         wm = np.power(weights,p)
-    #         # C = Cmin + np.einsum("n,nij->ij", wm, (self.C-Cmin))
-    #         ramp_factor = wm / (1 + q * (1 - wm))  # 替换SIMP中的wm
-    #         C = Cmin + np.einsum("...n,...nij->...ij", ramp_factor, (self.C - Cmin))
-    #         return stress_anisotropic(C, u_grad)
     
     # @partial(jax.jit, static_argnames=())
     def __call__(self, u_grad, weights, *args, **kwargs):
@@ -60,7 +45,7 @@ class SigmaInterpreter:
         orig_k1 = self.inv_order[k + 1]
 
         # 4. 局部线性坐标 + Ordered-RAMP
-        beta = 4.0
+        beta = 0.3  #刚才是1
         a_k, a_k1 = self.a_aux[k], self.a_aux[k + 1]
         xi = (x_e - a_k) / (a_k1 - a_k + 1e-12)
         xi_p = xi / (1 + beta * (1 - xi))

@@ -153,31 +153,7 @@ class Elasticity(Problem):
         #         'cell_eps_zz': cell_eps_zz
         #     }
         return avg_poisson_xz, avg_poisson_yz
-    # def compute_von_mises(self, sol):
-    #     # 无需重新计算应力，直接调用缓存的self.sigma
-    #     # 注意：需确保在调用此方法前，已通过正向求解触发过compute_stress（即sigma已缓存）
-    #     weights = jax.lax.stop_gradient(self.internal_vars[0]) # (num_cells, num_quads, tiletypes)
-    #     u_grad = jax.lax.stop_gradient(self.fe.sol_to_grad(sol)) # (num_cells, num_quads, vec, dim)
-    #     sigma = np.ones_like(u_grad)
-    #     sigma = jax.lax.stop_gradient(self.sigmaInterpreter(u_grad, weights))  # (num_cells, num_quads, vec, dim, dim)
-    #     # 后续计算与之前一致（应力偏量、冯·米塞斯公式等）
-    #     sigma_tr = np.trace(sigma, axis1=2, axis2=3)
-    #     sigma_spherical = (sigma_tr / self.dim)[..., None, None] * np.eye(self.dim)[None, None, None, :, :]
-    #     s_dev = sigma - sigma_spherical
-    #     vm_gauss = np.sqrt(3. / 2. * np.sum(s_dev **2, axis=(2, 3)))
-        
-    #     # 积分加权求单元平均（复用你的积分逻辑）
-    #     cells_JxW = self.JxW[:, 0, :]
-    #     cell_volumes = np.sum(cells_JxW, axis=1)
-    #     cell_vm = np.sum(vm_gauss * cells_JxW[..., None], axis=1).squeeze(1) / cell_volumes
-    #     total_volume = np.sum(cells_JxW)
-    #     avg_vm = np.sum(vm_gauss * cells_JxW[..., None]) / total_volume
-        
-    #     return {
-    #         'cell_von_mises': cell_vm,
-    #         'avg_von_mises': avg_vm,
-    #         'gauss_von_mises': vm_gauss
-    #     }
+
 
     def compute_von_mises(self, sol):
         # 停止梯度：后处理无需梯度跟踪
@@ -300,7 +276,7 @@ def consHandle(rho):
     # def computeGlobalVolumeConstraint(rho):
     #     g = np.mean(rho)/vf1 - 1.
     #     return g
-    c0, gradc0 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,0])-vf0),3) )(rho)
+    c0, gradc0 = jax.value_and_grad(lambda rho: (np.mean(rho[...,0])/vf0)-1 )(rho)
     # c1, gradc1 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,1])-vf1),3) )(rho)
     # c2, gradc2 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,2])-vf2),3) )(rho)
 
@@ -319,7 +295,7 @@ A, D = preprocess_adjacency(adj, tileHandler)
 wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz)}
+optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
