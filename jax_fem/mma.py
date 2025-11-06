@@ -522,9 +522,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             jax.debug.print("DensityFilter 均值：{a}", a=jnp.mean(rho))
             jax.debug.print("DensityFilter 最小值：{a}", a=jnp.min(rho))
             jax.debug.print("DensityFilter 最大值：{a}", a=jnp.max(rho))
-            prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum))
+            # rho,_,_=WFC(rho.reshape(-1,tileNum))
 
-            rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+            rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # temperature = 1
             # rho = jax.nn.softmax(rho / temperature, axis=-1)
             # rho_c_physical = applyDensityFilter(ft, rho)
@@ -633,7 +633,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
 
 def compute_material_grayness(rho_f: jnp.ndarray, 
-                             threshold: float = 0.95) -> Tuple[float, float, jnp.ndarray]:
+                             threshold: float = 0.95):
     """
     即插即用的多材料灰度监控函数
     

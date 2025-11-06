@@ -33,7 +33,7 @@ class SigmaInterpreter:
     def __call__(self, u_grad, weights, *args, **kwargs):
         # if self.debug:
         #     return stress(u_grad)
-
+        
         # 1. 概率 → 标量密度（外部顺序）
         x_e = np.dot(weights, self.a_aux[self.inv_order])  # 用排序后的辅助坐标
 
@@ -55,7 +55,8 @@ class SigmaInterpreter:
         C_k = self.C[orig_k]
         C_k1 = self.C[orig_k1]
         C_eff = (C_k + xi_p[...,None,None] * (C_k1 - C_k))+self.void
-
+        jax.debug.print("weights shape: {a}", a=weights.shape)      # 你会看到 (n_cell, n_quad, n_tile)
+        # jax.debug.print("x_e range: {a}, {b}", a=x_e.min(), b=x_e.max())  # 你会发现每次迭代都一模一样
         return stress_anisotropic(C_eff, u_grad)
 
     def __repr__(self) -> str:
