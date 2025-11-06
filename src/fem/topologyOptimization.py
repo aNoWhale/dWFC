@@ -7,6 +7,10 @@ os.environ["JAX_PLATFORMS"] = "cpu"
 import numpy as onp
 
 import glob
+import matplotlib
+# 强制使用有头后端（Tkinter，跨平台兼容性好）
+# 如果Tkinter不可用，可以尝试其他后端：Qt5Agg, GTK3Agg, WXAgg等
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from pathlib import Path
 import meshio

@@ -204,3 +204,49 @@ def walltime(txt_dir=None, filename=None):
         return wrapper
 
     return decorate
+
+
+class Jplotter:
+    def __init__(self):
+        """初始化目标函数J的实时绘图器"""
+        plt.ion()  # 开启交互模式
+        self.fig, self.ax = plt.subplots(figsize=(8, 4))
+        self.ax.set_title('Objective Function J vs Iteration')
+        self.ax.set_xlabel('Iteration')
+        self.ax.set_ylabel('J Value')
+        self.ax.grid(True, linestyle='--', alpha=0.7)
+        
+        # 初始化曲线和历史数据
+        self.line, = self.ax.plot([], [], 'b-', linewidth=2, marker='o', markersize=4)
+        self.j_history = []  # 存储历史J值
+        self.iterations = []  # 存储迭代次数
+
+    def update(self, current_iter, current_j):
+        """
+        更新目标函数曲线
+        
+        参数:
+            current_iter: 当前迭代次数（整数）
+            current_j: 当前迭代的J值（浮点数）
+        """
+        # 更新历史数据
+        self.iterations.append(current_iter)
+        self.j_history.append(current_j)
+        
+        # 更新曲线数据
+        self.line.set_xdata(self.iterations)
+        self.line.set_ydata(self.j_history)
+        
+        # 自动调整坐标轴范围
+        self.ax.relim()
+        self.ax.autoscale_view()
+        
+        # 刷新绘图
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
+        plt.pause(0.01)  # 短暂暂停确保图像更新
+
+    def finalize(self):
+        """优化结束后保持图像显示"""
+        plt.ioff()  # 关闭交互模式
+        plt.show()  # 保持图像窗口

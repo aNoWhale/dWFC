@@ -18,6 +18,8 @@ import scipy
 from jax.experimental.sparse import BCOO
 from typing import Callable
 from jax import config
+
+from jax_fem.utils import Jplotter
 config.update("jax_enable_x64", True)
 
 
@@ -471,6 +473,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     sensitivity_filtering = optimizationParams.get('sensitivity_filtering',True)
     Nx,Ny,Nz = optimizationParams.get("NxNyNz",(10,40,10))
 
+    jplotter = Jplotter()
     J_prev = np.inf
     rho_prev = rho_ini.copy()
     rho = rho_ini
@@ -566,6 +569,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         J, dJ, vc, dvc = np.array(J), np.array(dJ), np.array(vc), np.array(dvc)
         J_list.append(J)
+        jplotter.update(loop, J)
 
         start = time.time()
 
@@ -616,5 +620,6 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print("****************************************************")
         J_prev = J
         rho_prev = rho.copy()
+    jplotter.finalize()
     print(f"Total optimization time: {time.time()-allstart} [s]")
     return rho,J_list
