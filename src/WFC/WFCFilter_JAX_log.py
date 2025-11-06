@@ -94,7 +94,7 @@ def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_
     )
     log_p_updated = jnp.clip(log_p_updated, -50, 0)  # 确保在合理范围
     # 对数空间归一化（log_softmax）
-    log_p_updated = log_p_updated - jax.scipy.special.logsumexp(log_p_updated, keepdims=True)
+    # log_p_updated = log_p_updated - jax.scipy.special.logsumexp(log_p_updated, keepdims=True)
     
     # 6. 软更新（对数空间直接加权）
     return log_probs * (1 - collapse_mask[:, None]) + log_p_updated * collapse_mask[:, None]
@@ -125,7 +125,7 @@ def update_neighbors(log_probs, collapse_idx, A, D, log_compatibility):
     log_p_neigh = jnp.clip(log_p_neigh, -50, 0)  # 防止极端值
     
     # 对数空间归一化（保持不变）
-    log_p_neigh = log_p_neigh - jax.scipy.special.logsumexp(log_p_neigh, axis=1, keepdims=True)
+    # log_p_neigh = log_p_neigh - jax.scipy.special.logsumexp(log_p_neigh, axis=1, keepdims=True)
     
     # 4. 软更新邻居对数概率（保持不变）
     return log_probs * (1 - neighbor_mask[:, None]) + log_p_neigh * neighbor_mask[:, None]
@@ -186,7 +186,7 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility):
     final_probs = jnp.exp(final_log_probs)
     final_probs = jnp.clip(final_probs, 1e-10, 1.0)  # 确保概率在合理范围
     # 最后归一化一次，消除exp带来的微小偏差
-    final_probs = final_probs / jnp.sum(final_probs, axis=-1, keepdims=True)
+    # final_probs = final_probs / jnp.sum(final_probs, axis=-1, keepdims=True)
     
     collapse_list = jnp.arange(n_cells)
     return final_probs, 0, collapse_list

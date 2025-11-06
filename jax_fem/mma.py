@@ -591,14 +591,17 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         # 约束满足度
         con_violation = np.max(vc)
         
+        #灰度监控
+        grayness, clear_ratio, _ = compute_material_grayness(rho_f)
+
         # 梯度范数
         print("****************************************************")
         print(f"{optimizationParams}")
         print(f"J: {J}")
         print(f"obj_change:{obj_change}; tol:{max(1e-6, tol_obj*abs(J_prev))}")
         print(f"constrain violation:{con_violation}; tol:{tol_con}")
-        print(f"constrain violation change:{con_violation-con_violation_last}")
-        
+        print(f"constrain change:{con_violation-con_violation_last}")
+        print(f"Grayness: {grayness:.4f} | Clear: {clear_ratio:.1%}")
         
         if loop > min_iters:
             if abs(obj_change) < max(1e-6, tol_obj*abs(J_prev)) and\
@@ -627,3 +630,31 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     jplotter.finalize()
     print(f"Total optimization time: {time.strftime('%H:%M:%S', time.gmtime(time.time()-allstart))} [s]")
     return rho,J_list
+
+
+def compute_material_grayness(rho_f: jnp.ndarray, 
+                             threshold: float = 0.95) -> Tuple[float, float, jnp.ndarray]:
+    """
+    即插即用的多材料灰度监控函数
+    
+    参数:
+    rho_f: 概率场, 形状为 (num_elements, num_materials)
+    threshold: 清晰度阈值, 默认0.95(95%概率视为清晰选择)
+    
+    返回:
+    grayness: 平均灰度指标 (0-1之间, 越小越好)
+    clear_ratio: 清晰单元比例 (0-1之间, 越大越好)  
+    element_grayness: 每个单元的灰度值, 用于详细分析
+    """
+    # 数值稳定性: 确保概率和为1
+    rho_normalized = rho_f / (jnp.sum(rho_f, axis=-1, keepdims=True) + 1e-12)
+    # 计算每个单元的最大概率 (清晰度)
+    max_probs = jnp.max(rho_normalized, axis=-1)
+    # 灰度 = 1 - 最大概率 (度量模糊程度)
+    element_grayness = 1.0 - max_probs
+    # 全局平均灰度
+    grayness = jnp.mean(element_grayness)
+    # 清晰单元比例 (最大概率超过阈值)
+    clear_ratio = jnp.mean(max_probs > threshold)
+    return float(grayness), float(clear_ratio), element_grayness
+

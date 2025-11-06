@@ -202,12 +202,12 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['BCC','void'], 
+tileHandler = TileHandler(typeList=['BCC',], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.setConnectiability(fromTypeName='BCC',toTypeName=['void'],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='BCC',toTypeName=['void'],direction="isotropy",value=1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='FCCtube', toTypeName="FCCnp2dpillar", direction="isotropy",value=1,dual=True)
-tileHandler.selfConnectable(typeName=['BCC','void'],value=1)
+tileHandler.selfConnectable(typeName=['BCC',],value=1)
 print(tileHandler)
 tileHandler.constantlize_compatibility()
 sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/C",debug=False)

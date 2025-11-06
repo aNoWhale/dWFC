@@ -22,6 +22,7 @@ class SigmaInterpreter:
         self.C_dict:Dict[str,np.ndarray] = {}
         self.C:np.ndarray=None
         self.debug=kwargs.get("debug",False)
+        self.void = np.array(void_C(E0=1,nu=0.3,eps=1e-9))
         if not self.debug:
             self._buildCDict() 
             self._buildCache() 
@@ -53,7 +54,7 @@ class SigmaInterpreter:
         # 5. 矩阵插值（用原始顺序的 C）
         C_k = self.C[orig_k]
         C_k1 = self.C[orig_k1]
-        C_eff = C_k + xi_p[...,None,None] * (C_k1 - C_k)
+        C_eff = (C_k + xi_p[...,None,None] * (C_k1 - C_k))+self.void
 
         return stress_anisotropic(C_eff, u_grad)
 
@@ -173,3 +174,20 @@ def stress_anisotropic( C, u_grad, *args, **kwargs):
     sigma = sigma.at[..., 1, 0].set(sigma_voigt[..., 5])  # σ21（对称）
     return sigma
   
+import numpy as onp
+def void_C(E0=1.0, nu=0.3, eps=1e-9):
+    """返回 6×6 各向同性刚度矩阵（接近 void）"""
+    E = eps * E0                      # 弹性模量缩小
+    C = onp.zeros((6, 6))
+    # 对角块
+    lam = E * nu / ((1 + nu) * (1 - 2 * nu))
+    mu = E / (2 * (1 + nu))
+    for i in range(3):
+        C[i, i] = lam + 2 * mu
+        for j in range(3):
+            if i != j:
+                C[i, j] = lam
+    # 剪切块
+    for i in range(3, 6):
+        C[i, i] = mu
+    return C
