@@ -16,7 +16,8 @@ class SigmaInterpreter:
         self.C_dict:Dict[str,np.ndarray] = {}
         self.C:np.ndarray=None  # 包含用户材料 + void材料
         self.debug=kwargs.get("debug",False)
-        self.void = np.array(void_C(E0=1,nu=0.3,eps=1e-9))  # void的刚度矩阵
+        void =void_C(E0=1,nu=0.3,eps=1e-9)
+        self.void = np.array(void)  # void的刚度矩阵
         
         if not self.debug:
             self._buildCDict()  # 构建包含void的刚度矩阵列表
@@ -27,23 +28,20 @@ class SigmaInterpreter:
         if self.debug:
             return stress(u_grad)
         
-        p = 3.0  # SIMP惩罚因子
-        C_eff = np.sum(self.C * weights[:,None,None] ** p,axis=0,keepdims=False) + self.void
+        p = 4.0  # SIMP惩罚因子
+        pw=weights ** p
+        C_eff = np.einsum("...ijk,...i->...jk", self.C, pw) + self.void
         return stress_anisotropic(C_eff, u_grad)
 
     def __repr__(self) -> str:
-        if not hasattr(self, "order"):
-            return "<SigmaInterpreter: 尚未初始化缓存>"
-
-        header = f"{'idx':>3}  {'order':>5} {'|C|':>10}"
+        header = f"{'idx':>3} {'type':>5} {'|C|':>10}"
         bar = "-" * len(header)
         lines = [header, bar]
 
         c_norm = np.linalg.norm(self.C, axis=(1, 2))
         for ext_idx, typ in enumerate(self.typeList):
             # 安全地把“外部索引”映射到“内部排序序号”
-            int_idx = int(np.asarray(self.order == ext_idx).argmax())
-            lines.append(f"{ext_idx:>3} {typ:<12}  {c_norm[ext_idx]:>10.3e}")
+            lines.append(f"{ext_idx:>3}   {typ:<12}  {c_norm[ext_idx]:>10.3e}")
 
         return "\n".join(lines)
     
@@ -151,4 +149,4 @@ def void_C(E0=1.0, nu=0.3, eps=1e-9):
     # 剪切块
     for i in range(3, 6):
         C[i, i] = mu
-    return C
+    return C.squeeze()

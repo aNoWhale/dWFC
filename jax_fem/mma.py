@@ -482,7 +482,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
     H_r, Hs_r = compute_filter_kd_tree(fe,r_factor = 1.2)
     ft_rough = {'H':H_r, 'Hs':Hs_r}
-    H, Hs = compute_filter_kd_tree(fe,r_factor = 1)
+    H, Hs = compute_filter_kd_tree(fe,r_factor = 1.5)
     ft = {'H':H, 'Hs':Hs}
 
     loop = 0
@@ -529,20 +529,15 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             # rho = jax.nn.softmax(rho / temperature, axis=-1)
             # rho_c_physical = applyDensityFilter(ft, rho)
             return rho
-
-
-        print(f"filtering...")
-       
-        
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):
             return filter_chain(r, ft_rough, WFC, ft)
 
         # 构建VJP：fwd_func返回(rho_f, vjp_fn)，其中vjp_fn用于计算梯度
         rho_f_vjp, vjp_fn = jax.vjp(filter_chain_vjp, rho)
-         # 1. 先计算一次正向结果（包含WFC调用）
-        # rho_f = filter_chain(rho, ft_rough, WFC, ft)
-        rho_f = rho_f_vjp
+
+
+        rho_f = rho
         print("rho_f 均值：", jnp.mean(rho_f))
         print("rho_f 最小值：", jnp.min(rho_f))
         print("rho_f 最大值：", jnp.max(rho_f))
@@ -550,16 +545,19 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         # 3. 计算下游梯度并应用链式法则（此时vjp_fn会正确传递梯度）
         J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
         vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
-        print("目标函数对rho_f的梯度范数：", jnp.linalg.norm(dJ_drho_f))
-        print(f"dJ_drho_f.shape: {dJ_drho_f.shape}\ndvc.shape: {dvc_drho_f.shape}")
-        # 关键：用vjp_fn计算rho对rho_f的梯度，再乘以dJ_drho_f（链式法则）
-        dJ_drho = vjp_fn(dJ_drho_f)[0]
-        vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
-        dvc_drho = vjp_batch(dvc_drho_f)[0]
-        print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc.shape: {dvc_drho.shape}")
+        # print("目标函数对rho_f的梯度范数：", jnp.linalg.norm(dJ_drho_f))
+        # print(f"dJ_drho_f.shape: {dJ_drho_f.shape}\ndvc.shape: {dvc_drho_f.shape}")
 
-        dJ=dJ_drho
-        dvc=dvc_drho
+
+
+        # # 关键：用vjp_fn计算rho对rho_f的梯度，再乘以dJ_drho_f（链式法则）
+        # dJ_drho = vjp_fn(dJ_drho_f)[0]
+        # vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
+        # dvc_drho = vjp_batch(dvc_drho_f)[0]
+        # print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc.shape: {dvc_drho.shape}")
+
+        dJ=dJ_drho_f
+        dvc=dvc_drho_f
         if sensitivity_filtering:
             dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
         print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
