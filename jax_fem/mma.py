@@ -512,6 +512,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         def filter_chain(rho,ft_rough,WFC,ft):
             rho = applyDensityFilter(ft_rough, rho)
+            jax.debug.print("DensityFilter 均值：{a}", a=jnp.mean(rho))
+            jax.debug.print("DensityFilter 最小值：{a}", a=jnp.min(rho))
+            jax.debug.print("DensityFilter 最大值：{a}", a=jnp.max(rho))
             prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum))
 
             rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
@@ -526,7 +529,6 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         rho_f = filter_chain(rho, ft_rough, WFC, ft)
 
         print("rho_f 均值：", jnp.mean(rho_f))
-        print("rho_f 是否有NaN：", jnp.isnan(rho_f).any())
         print("rho_f 最小值：", jnp.min(rho_f))
         print("rho_f 最大值：", jnp.max(rho_f))
         
