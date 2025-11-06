@@ -34,7 +34,7 @@ from jax_fem.utils import save_sol
 from jax_fem.generate_mesh import get_meshio_cell_type, Mesh, rectangle_mesh, box_mesh_gmsh
 from jax_fem.mma import optimize
 
-from src.fem.SigmaInterpreter import SigmaInterpreter
+from src.fem.SigmaInterpreter_SIMP import SigmaInterpreter
 from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
 from src.WFC.WFCFilter_JAX_log import waveFunctionCollapse
