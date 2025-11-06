@@ -10,52 +10,55 @@ import json
 from functools import partial
 
 class SigmaInterpreter:
-    def __init__(self,typeList:List,folderPath:str=None,*args,**kwargs) -> None:
-        """SigmaInterpreter class was designed to provide sigma for fem
-
-        Args:
-            typeList (List): the typelist from TileHandler
-            folderPath (str): path where has propretries, the fielename should be the same as the type
-        """
+    def __init__(self, typeList:List,folderPath:str=None,*args,** kwargs) -> None:
         self.typeList = typeList
         self.folderPath = folderPath
         self.C_dict:Dict[str,np.ndarray] = {}
-        self.C:np.ndarray=None
+        self.C:np.ndarray=None  # 包含用户材料 + void材料
         self.debug=kwargs.get("debug",False)
-        self.void = np.array(void_C(E0=1,nu=0.3,eps=1e-9))
+        self.void = np.array(void_C(E0=1,nu=0.3,eps=1e-9))  # void的刚度矩阵
+        
+        # 关键：在内部材料列表中添加"void"作为隐含材料（用户无需传入）
+        self.internal_typeList = self.typeList + ["void"]  # 内部材料列表：用户材料 + void
+        
         if not self.debug:
-            self._buildCDict() 
-            self._buildCache() 
+            self._buildCDict()  # 构建包含void的刚度矩阵列表
+            self._buildCache()  # 排序包含void的材料
     
 
     
     # @partial(jax.jit, static_argnames=())
     def __call__(self, u_grad, weights, *args, **kwargs):
-        # if self.debug:
-        #     return stress(u_grad)
-
-        # 1. 概率 → 标量密度（外部顺序）
-        x_e = np.dot(weights, self.a_aux[self.inv_order])  # 用排序后的辅助坐标
-
-        # 2. 区间选择（在排序空间进行）
+        if self.debug:
+            return stress(u_grad)
+        
+        # 1. 自动计算void概率：1 - 其他材料概率总和（确保权重和为1）
+        sum_weights = np.sum(weights, axis=-1, keepdims=True)  # 外部材料概率和：(n,1)
+        void_weight = 1.0 - sum_weights  # void概率：(n,1)
+        full_weights = np.concatenate([weights, void_weight], axis=-1)  # 完整权重：(n, tileNum+1)（含void）
+        
+        # 2. 计算加权特征值x_e（包含void的概率）
+        x_e = np.sum(full_weights * self.a_aux[self.inv_order][None, :], axis=-1)  # (n,)
+        
+        # 3. 区间选择（自然包含void的区间）
         k = np.searchsorted(self.a_aux, x_e, side='right') - 1
-        k = np.clip(k, 0, self.a_aux.shape[0] - 2)
-
-        # 3. 映射回原始索引
+        k = np.clip(k, 0, self.a_aux.shape[0] - 2)  # 避免越界
+        
+        # 4. 映射回原始材料索引（含void）
         orig_k = self.inv_order[k]
         orig_k1 = self.inv_order[k + 1]
-
-        # 4. 局部线性坐标 + Ordered-RAMP
-        beta = 1.  #刚才是1
+        
+        # 5. Ordered-RAMP插值 + SIMP惩罚
         a_k, a_k1 = self.a_aux[k], self.a_aux[k + 1]
-        xi = (x_e - a_k) / (a_k1 - a_k + 1e-12)
-        xi_p = xi / (1 + beta * (1 - xi))
-
-        # 5. 矩阵插值（用原始顺序的 C）
-        C_k = self.C[orig_k]
+        xi = (x_e - a_k) / (a_k1 - a_k + 1e-12)  # 0~1
+        p = 3.0  # SIMP惩罚因子
+        xi_p = xi ** p  # 惩罚后的插值系数
+        
+        # 6. 刚度插值（自动包含void的刚度）
+        C_k = self.C[orig_k]  # 可能是void或其他材料
         C_k1 = self.C[orig_k1]
-        C_eff = (C_k + xi_p[...,None,None] * (C_k1 - C_k))+self.void
-
+        C_eff = C_k + xi_p[..., None, None] * (C_k1 - C_k)  # 无需额外加void，因C_k可能已是void
+        
         return stress_anisotropic(C_eff, u_grad)
 
     def __repr__(self) -> str:
@@ -77,6 +80,7 @@ class SigmaInterpreter:
     
     def _buildCDict(self):
         C_list = []
+        # 1. 加载用户传入的材料（外部材料）
         for mat_type in self.typeList:
             file_path = os.path.join(self.folderPath, f"{mat_type}.json")
             try:
@@ -87,7 +91,10 @@ class SigmaInterpreter:
                 print(f"Loaded C for * {mat_type} * from {file_path}")
             except Exception as e:
                 print(f"Error loading {file_path}: {e}")
-        self.C = np.array(C_list)  # 保持外部顺序
+        
+        # 2. 追加void材料到内部刚度列表（作为最后一个材料）
+        C_list.append(self.void)
+        self.C = np.array(C_list)  # 形状：(tileNum+1, 6, 6)（含void）
 
     def _buildCache(self):
         # 1. 计算代表标量（外部顺序）
