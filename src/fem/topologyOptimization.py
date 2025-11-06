@@ -295,7 +295,7 @@ A, D = preprocess_adjacency(adj, tileHandler)
 wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':101, 'movelimit':1.0, 'NxNyNz':(Nx,Ny,Nz)}
+optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz)}
 
 
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
