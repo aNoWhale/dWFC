@@ -623,6 +623,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         J_prev = J
         rho_prev = rho.copy()
         con_violation_last = con_violation
+        
     jplotter.finalize()
     print(f"Total optimization time: {time.strftime("%H:%M:%S", time.gmtime(time.time()-allstart))} [s]")
     return rho,J_list
