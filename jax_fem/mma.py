@@ -475,8 +475,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     rho_prev = rho_ini.copy()
     rho = rho_ini
     J_list=[]
+    con_violation_last = 0
 
-    H_r, Hs_r = compute_filter_kd_tree(fe,r_factor = 1.2)
+    H_r, Hs_r = compute_filter_kd_tree(fe,r_factor = 1.5)
     ft_rough = {'H':H_r, 'Hs':Hs_r}
     H, Hs = compute_filter_kd_tree(fe,r_factor = 1)
     ft = {'H':H, 'Hs':Hs}
@@ -509,6 +510,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print(f"MMA solver...")
         print(f"collapsing...")
         print(f"rho.shape: {rho.shape}")
+        print("rho 均值：", jnp.mean(rho))
+        print("rho 最小值：", jnp.min(rho))
+        print("rho 最大值：", jnp.max(rho))
 
         def filter_chain(rho,ft_rough,WFC,ft):
             rho = applyDensityFilter(ft_rough, rho)
@@ -550,13 +554,10 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         dJ=dJ_drho
         dvc=dvc_drho
-        # if sensitivity_filtering:
-        #     dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
+        if sensitivity_filtering:
+            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
 
-        # rho_small = rho + 1e-4 * jnp.ones_like(rho)
-        # rho_filtered = applyDensityFilter(ft_rough, rho)
-        # rho_filtered_small = applyDensityFilter(ft_rough, rho_small)
-        # print("滤波后变化量：", jnp.linalg.norm(rho_filtered_small - rho_filtered))
+
         J, dJ = J, dJ.reshape(-1)[:, None]
         vc, dvc = vc[:, None], dvc.reshape(dvc.shape[0], -1)
 
@@ -592,6 +593,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print(f"J: {J}")
         print(f"obj_change:{obj_change}; tol:{max(1e-6, tol_obj*abs(J_prev))}")
         print(f"constrain violation:{con_violation}; tol:{tol_con}")
+        print(f"constrain violation change:{con_violation-con_violation_last}")
         
         
         if loop > min_iters:
@@ -613,8 +615,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         print(f'Iter {loop:d} end; J {J:.5f}; \nconstraint: \n{vc}')
         print(f"epoch spends: {time.time()-start_time} [s]")
-        print("****************************************************")
+        print("****************************************************\n")
         J_prev = J
         rho_prev = rho.copy()
-    print(f"Total optimization time: {time.time()-allstart} [s]")
+        con_violation_last = con_violation
+    print(f"Total optimization time: {time.strftime("%H:%M:%S", time.gmtime(time.time()-allstart))} [s]")
     return rho,J_list
