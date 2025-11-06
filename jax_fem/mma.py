@@ -499,7 +499,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
                          10000*np.ones((m,1)), np.zeros((m,1)))
     # Move limit is an important parameter that affects TO result; default can be 0.2
     mma.setMoveLimit(optimizationParams['movelimit']) 
-
+    allstart = time.time()
     while loop < optimizationParams['maxIters']:
         start_time=time.time()
         np.save(f"data/npy/{loop}",rho)
@@ -612,9 +612,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print(f"MMA took {time_elapsed} [s]")
 
         print(f'Iter {loop:d} end; J {J:.5f}; \nconstraint: \n{vc}')
-        print(f"epoch spends: {time.time()-start_time}")
+        print(f"epoch spends: {time.time()-start_time} [s]")
         print("****************************************************")
         J_prev = J
         rho_prev = rho.copy()
-
+    print(f"Total optimization time: {time.time()-allstart} [s]")
     return rho,J_list
