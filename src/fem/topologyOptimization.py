@@ -34,10 +34,29 @@ from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
 from src.WFC.WFCFilter_JAX_log import waveFunctionCollapse
 
+from pathlib import Path
+def create_directory_if_not_exists(directory_path):
+    """
+    如果目录不存在则创建目录
+    
+    Args:
+        directory_path: 目录路径（可以是字符串或Path对象）
+    """
+    try:
+        path = Path(directory_path)
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+            print(f"目录 '{directory_path}' 创建成功")
+        else:
+            print(f"目录 '{directory_path}' 已存在")
+    except Exception as e:
+        print(f"创建目录 '{directory_path}' 时出错: {e}")
+
 
 # Do some cleaning work. Remove old solution files.
 # data_path = os.path.join(os.path.dirname(__file__), 'data')
 print(f"{jax.devices()}")
+create_directory_if_not_exists("data")
 data_path ='data'
 
 files = glob.glob(os.path.join(data_path, f'vtk/*'))
@@ -181,6 +200,7 @@ ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
 Lx, Ly, Lz = 10., 40., 20.
 Nx, Ny, Nz = 10, 40, 20
+create_directory_if_not_exists("data/msh")
 if not os.path.exists("data/msh/box.msh"):
     meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type)
 else:
@@ -301,12 +321,13 @@ optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz)}
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
 
 rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
-
+create_directory_if_not_exists("data/npy")
 np.save("data/npy/rho_oped",rho_oped)
 
 
 # Plot the optimization results.
 obj = onp.array(outputs)
+create_directory_if_not_exists("data/csv")
 onp.savetxt( "data/csv/topo_obj.csv", onp.array(obj), delimiter="," )
 
 

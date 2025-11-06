@@ -501,6 +501,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     mma.setMoveLimit(optimizationParams['movelimit']) 
 
     while loop < optimizationParams['maxIters']:
+        start_time=time.time()
         np.save(f"data/npy/{loop}",rho)
         # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
         alpha = 1
@@ -511,6 +512,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         def filter_chain(rho,ft_rough,WFC,ft):
             rho = applyDensityFilter(ft_rough, rho)
+            jax.debug.print("DensityFilter 均值：{a}", a=jnp.mean(rho))
+            jax.debug.print("DensityFilter 最小值：{a}", a=jnp.min(rho))
+            jax.debug.print("DensityFilter 最大值：{a}", a=jnp.max(rho))
             prob_collapsed,_,_=WFC(rho.reshape(-1,tileNum))
 
             rho = prob_collapsed.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
@@ -521,10 +525,10 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
 
         # 1. 先计算一次正向结果（包含WFC调用）
+        print(f"filtering...")
         rho_f = filter_chain(rho, ft_rough, WFC, ft)
 
         print("rho_f 均值：", jnp.mean(rho_f))
-        print("rho_f 是否有NaN：", jnp.isnan(rho_f).any())
         print("rho_f 最小值：", jnp.min(rho_f))
         print("rho_f 最大值：", jnp.max(rho_f))
         
@@ -546,12 +550,13 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         dJ=dJ_drho
         dvc=dvc_drho
-        if sensitivity_filtering:
-            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
-        rho_small = rho + 1e-4 * jnp.ones_like(rho)
-        rho_filtered = applyDensityFilter(ft_rough, rho)
-        rho_filtered_small = applyDensityFilter(ft_rough, rho_small)
-        print("滤波后变化量：", jnp.linalg.norm(rho_filtered_small - rho_filtered))
+        # if sensitivity_filtering:
+        #     dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
+
+        # rho_small = rho + 1e-4 * jnp.ones_like(rho)
+        # rho_filtered = applyDensityFilter(ft_rough, rho)
+        # rho_filtered_small = applyDensityFilter(ft_rough, rho_small)
+        # print("滤波后变化量：", jnp.linalg.norm(rho_filtered_small - rho_filtered))
         J, dJ = J, dJ.reshape(-1)[:, None]
         vc, dvc = vc[:, None], dvc.reshape(dvc.shape[0], -1)
 
@@ -584,8 +589,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         # 梯度范数
         print("****************************************************")
         print(f"{optimizationParams}")
-        print(f"obj_change:{obj_change};{max(1e-6, tol_obj*abs(J_prev))}")
-        print(f"constrain violation:{con_violation};{tol_con}")
+        print(f"J: {J}")
+        print(f"obj_change:{obj_change}; tol:{max(1e-6, tol_obj*abs(J_prev))}")
+        print(f"constrain violation:{con_violation}; tol:{tol_con}")
         
         
         if loop > min_iters:
@@ -606,6 +612,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print(f"MMA took {time_elapsed} [s]")
 
         print(f'Iter {loop:d} end; J {J:.5f}; \nconstraint: \n{vc}')
+        print(f"epoch spends: {time.time()-start_time}")
         print("****************************************************")
         J_prev = J
         rho_prev = rho.copy()
