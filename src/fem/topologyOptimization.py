@@ -191,18 +191,18 @@ mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
 def fixed_location(point):
     return np.isclose(point[1], 0., atol=0.1+1e-5)
 
-# def load_location(point):
-#     return np.logical_and(np.isclose(point[2], 0, atol=1+1e-5),
-#                           np.isclose(point[1], Ly, atol=1+1e-5),)
-
 def load_location(point):
-    return np.logical_and(
-                np.logical_and(
-                    np.isclose(point[1], Ly, atol=1+1e-5),  # 自由端（y=Ly）
-                    np.isclose(point[2], 0, atol=1+1e-5)),   # z=0的线
-                np.logical_and(
-                    point[0] >= 4.,                      # x下限（仅中间局部）
-                    point[0] <= 6.))                  # x上限（仅中间局部）
+    return np.logical_and(np.isclose(point[2], 0, atol=0.1*Lz+1e-5),
+                          np.isclose(point[1], Ly, atol=0.1*Ly+1e-5))
+
+# def load_location(point):
+#     return np.logical_and(
+#                 np.logical_and(
+#                     np.isclose(point[1], Ly, atol=1+1e-5),  # 自由端（y=Ly）
+#                     np.isclose(point[2], 0, atol=1+1e-5)),   # z=0的线
+#                 np.logical_and(
+#                     point[0] >= 4.,                      # x下限（仅中间局部）
+#                     point[0] <= 6.))                  # x上限（仅中间局部）
 
 
 def dirichlet_val(point):
@@ -240,7 +240,7 @@ def J_total(params):
     compliance = problem.compute_compliance(sol_list[0])
     # avg_poisson_xz, avg_poisson_yz = problem.compute_poissons_ratio(sol_list[0])
     # jax.debug.print("avg_poisson_xz= {a}\navg_poisson_yz= {b}",a=avg_poisson_xz,b=avg_poisson_yz)
-    jax.debug.print("compliance= {c}",c=compliance)
+    # jax.debug.print("compliance= {c}",c=compliance)
     return compliance, sol_list
 
 
@@ -254,12 +254,12 @@ def output_sol(params, obj_val,sol_list):
     vtu_path = os.path.join(data_path, f'vtk/sol_{output_sol.counter:03d}.vtu')
     cell_infos = [(f'theta{i}', params[:, i]) for i in range(params.shape[-1])]
     cell_infos.append( ('all', np.argmax(params,axis=-1)) )
-    mises = problem.compute_von_mises(sol)
+    # mises = problem.compute_von_mises(sol)
     # cell_infos.extend([(f'{key}', item ) for key,item in mises.items()])
-    cell_infos.append(('cell_von_mises', mises["cell_von_mises"] ))
+    # cell_infos.append(('cell_von_mises', mises["cell_von_mises"] ))
     save_sol(problem.fe, np.hstack((sol, np.zeros((len(sol), 1)))), vtu_path, 
              cell_infos=cell_infos)
-    print(f"compliance = {obj_val}")
+    # print(f"compliance = {obj_val}")
     outputs.append(obj_val)
     output_sol.counter += 1
 output_sol.counter = 0
