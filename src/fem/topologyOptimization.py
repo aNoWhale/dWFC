@@ -144,15 +144,6 @@ class Elasticity(Problem):
         total_volume = np.sum(cells_JxW)
         avg_poisson_xz = -np.sum(epsilon_xx * cells_JxW) / np.sum(epsilon_zz * cells_JxW)
         avg_poisson_yz = -np.sum(epsilon_yy * cells_JxW) / np.sum(epsilon_zz * cells_JxW)
-        # results={
-        #         'cell_poisson_xz': cell_poisson_xz,
-        #         'cell_poisson_yz': cell_poisson_yz,
-        #         'avg_poisson_xz': avg_poisson_xz,
-        #         'avg_poisson_yz': avg_poisson_yz,
-        #         'cell_eps_xx': cell_eps_xx,
-        #         'cell_eps_yy': cell_eps_yy,
-        #         'cell_eps_zz': cell_eps_zz
-        #     }
         return avg_poisson_xz, avg_poisson_yz
 
 

@@ -16,21 +16,17 @@ from functools import partial
 import time
 import scipy
 from jax.experimental.sparse import BCOO
-from typing import Callable
-from jax import config
+from jax_fem import logger
 
-from jax_fem.utils import Jplotter
+from jax import config
 config.update("jax_enable_x64", True)
 
+density_filtering = False
+sensitivity_filtering = True
 
-
-def compute_filter_kd_tree(fe,r_factor=1.5):
+def compute_filter_kd_tree(fe):
     """This function is created by Tianju. Not from the original code.
     We use k-d tree algorithm to compute the filter.
-    r_factor <1: nothing but itself included,
-    r_factor =1: direct nearby cells included,
-    r_factor = sqrt(3) surround included,
-    r_factor >2 more included.
     """
     cell_centroids = np.mean(np.take(fe.points, fe.cells, axis=0), axis=1)
     flex_num_cells = len(fe.flex_inds)
@@ -40,7 +36,7 @@ def compute_filter_kd_tree(fe,r_factor=1.5):
     avg_elem_V = V/fe.num_cells
 
     avg_elem_size = avg_elem_V**(1./fe.dim)
-    rmin = r_factor*avg_elem_size
+    rmin = 1.5*avg_elem_size
 
     kd_tree = scipy.spatial.KDTree(flex_cell_centroids)
     I = []
@@ -61,8 +57,8 @@ def compute_filter_kd_tree(fe,r_factor=1.5):
     return H, Hs
 
 def applySensitivityFilter(ft, rho, dJ, dvc):
-    dJ = ft['H'] @ (rho*dJ/np.maximum(1e-3, rho)/ft['Hs'][:, None]) # (n, n) @ [(n,1) * (n,1)/(1,)/(1, 1) ]-> (n,n)@(n, 1)->(n, 1)
-    dvc = ft['H'][None, :, :] @ (rho[None, :, :]*dvc/np.maximum(1e-3, rho[None, :, :])/ft['Hs'][None, :, None]) # (1, n, n)@(1, n, 1) -> (1, n, 1)
+    dJ = ft['H'] @ (rho*dJ/np.maximum(1e-3, rho)/ft['Hs'][:, None])
+    dvc = ft['H'][None, :, :] @ (rho[None, :, :]*dvc/np.maximum(1e-3, rho[None, :, :])/ft['Hs'][None, :, None])
     return dJ, dvc
 
 def applyDensityFilter(ft, rho):
@@ -416,7 +412,7 @@ def subsolv(m,n,epsimin,low,upp,alfa,beta,p0,q0,P,Q,a0,a,b,c,d):
     return xmma,ymma,zmma,lamma,xsimma,etamma,mumma,zetmma,smma
 
 
-def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum, WFC:Callable):
+def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints):
     """
     Performs topology optimization using the Method of Moving Asymptotes (MMA).
 
@@ -426,7 +422,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         Finite element object.
     rho_ini : NumpyArray
         Initial density distribution.
-        Shape is (num_rho_vars, n).
+        Shape is (num_rho_vars, 1).
     optimizationParams : dict
         Dictionary containing optimization parameters:
 
@@ -461,24 +457,11 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     TODO: Scale objective function value to be always within 1-100
     (`ref <https://doi.org/10.1016/j.compstruc.2018.01.008>`_).
     """
-    # stop condition
-    tol_obj = optimizationParams.get('tol_obj', 1e-6)
-    tol_design = optimizationParams.get('tol_design', 1e-1)
-    tol_con = optimizationParams.get('tol_con', 1e-1)
-    min_iters = optimizationParams.get('min_iters', 10)
-    sensitivity_filtering = optimizationParams.get('sensitivity_filtering',True)
 
-
-    jplotter = Jplotter()
-    J_prev = np.inf
-    rho_prev = rho_ini.copy()
-    rho = rho_ini
-    J_list=[]
-    con_violation_last = 0
-
-
-    H, Hs = compute_filter_kd_tree(fe,r_factor = 1.5)
+    H, Hs = compute_filter_kd_tree(fe)
     ft = {'H':H, 'Hs':Hs}
+
+    rho = rho_ini
 
     loop = 0
     m = numConstraints # num constraints
@@ -498,69 +481,27 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
                          10000*np.ones((m,1)), np.zeros((m,1)))
     # Move limit is an important parameter that affects TO result; default can be 0.2
     mma.setMoveLimit(optimizationParams['movelimit']) 
-    allstart = time.time()
 
     while loop < optimizationParams['maxIters']:
-        start_time=time.time()
         loop = loop + 1
-        np.save(f"data/npy/{loop}",rho)
-        # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
-        alpha = 1
+
+        logger.info(f"MMA solver...")
         
-        print(f"MMA solver...")
-        print(f"collapsing...")
-        print(f"rho.shape: {rho.shape}")
-        print("rho 均值：", jnp.mean(rho))
-        print("rho 最小值：", jnp.min(rho))
-        print("rho 最大值：", jnp.max(rho))
+        if density_filtering:
+            rho_physical = applyDensityFilter(ft, rho)
+        else:
+            rho_physical = rho
+            
+        J, dJ = objectiveHandle(rho_physical)
+        vc, dvc = consHandle(rho_physical, loop)
 
-        def filter_chain(rho,WFC,ft):
-            # rho = applyDensityFilter(ft, rho)
-            # rho,_,_=WFC(rho.reshape(-1,tileNum))
-            rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
-            return rho
-        # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
-        def filter_chain_vjp(r):
-            return filter_chain(r, WFC, ft)
-
-        # 构建VJP：fwd_func返回(rho_f, vjp_fn)，其中vjp_fn用于计算梯度
-        rho_f_vjp, vjp_fn = jax.vjp(filter_chain_vjp, rho)
-
-
-        rho_f = rho
-        print("rho_f 均值：", jnp.mean(rho_f))
-        print("rho_f 最小值：", jnp.min(rho_f))
-        print("rho_f 最大值：", jnp.max(rho_f))
-        
-        J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
-        vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
-
-
-
-
-        # # 关键：用vjp_fn计算rho对rho_f的梯度，再乘以dJ_drho_f（链式法则）
-        # dJ_drho = vjp_fn(dJ_drho_f)[0]
-        # vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
-        # dvc_drho = vjp_batch(dvc_drho_f)[0]
-        # print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc.shape: {dvc_drho.shape}")
-
-        dJ=dJ_drho_f
-        dvc=dvc_drho_f
         if sensitivity_filtering:
-            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
-        print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
-
+            dJ, dvc = applySensitivityFilter(ft, rho, dJ, dvc)
 
         J, dJ = J, dJ.reshape(-1)[:, None]
         vc, dvc = vc[:, None], dvc.reshape(dvc.shape[0], -1)
 
-        print(f"dJ.max: {np.max(dJ)}")
-        print(f"dJ.min: {np.min(dJ)}")
-
-
         J, dJ, vc, dvc = np.array(J), np.array(dJ), np.array(vc), np.array(dvc)
-        J_list.append(J)
-        jplotter.update(loop, J)
 
         start = time.time()
 
@@ -572,78 +513,16 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         xold2 = xold1.copy()
         xold1 = xval.copy()
         xval = xmma.copy()
-        # 目标函数变化
-        obj_change = J - J_prev
-        
-        # # 设计变量变化
-        # design_change = np.linalg.norm(rho - rho_prev)
-        
-        # 约束满足度
-        con_violation = np.max(vc)
-        
-        #灰度监控
-        grayness, clear_ratio, _ = compute_material_grayness(rho_f)
-
-        # 梯度范数
-        print("****************************************************")
-        print(f"{optimizationParams}")
-        print(f"J: {J}")
-        print(f"obj_change:{obj_change}; tol:{max(1e-6, tol_obj*abs(J_prev))}")
-        print(f"constrain violation:{con_violation}; tol:{tol_con}")
-        print(f"constrain change:{con_violation-con_violation_last}")
-        print(f"Grayness: {grayness:.4f} | Clear: {clear_ratio:.1%}")
-        
-        if loop > min_iters:
-            if abs(obj_change) < max(1e-6, tol_obj*abs(J_prev)) and\
-                (con_violation <= tol_con):
-                print(f"收敛于迭代 {loop}")
-                break
-
 
         mma.registerMMAIter(xval, xold1, xold2)
         rho = xval.reshape(rho.shape)
-        rho = np.clip(rho, 0, 1)
+
         end = time.time()
 
         time_elapsed = end - start
 
-        print(f"MMA took {time_elapsed} [s]")
+        logger.info(f"MMA took {time_elapsed} [s]")
 
-        print(f'Iter {loop:d} end; J {J:.5f}; \nconstraint: \n{vc}')
-        print(f"epoch spends: {time.time()-start_time} [s]")
-        print("****************************************************\n")
-        J_prev = J
-        rho_prev = rho.copy()
-        con_violation_last = con_violation
-        
-    jplotter.finalize()
-    print(f"Total optimization time: {time.strftime('%H:%M:%S', time.gmtime(time.time()-allstart))} [s]")
-    return rho,J_list
+        logger.info(f'Iter {loop:d}; J {J:.5f}; constraint {vc}\n\n\n')
 
-
-def compute_material_grayness(rho_f: jnp.ndarray, 
-                             threshold: float = 0.95):
-    """
-    即插即用的多材料灰度监控函数
-    
-    参数:
-    rho_f: 概率场, 形状为 (num_elements, num_materials)
-    threshold: 清晰度阈值, 默认0.95(95%概率视为清晰选择)
-    
-    返回:
-    grayness: 平均灰度指标 (0-1之间, 越小越好)
-    clear_ratio: 清晰单元比例 (0-1之间, 越大越好)  
-    element_grayness: 每个单元的灰度值, 用于详细分析
-    """
-    # 数值稳定性: 确保概率和为1
-    rho_normalized = rho_f / (jnp.sum(rho_f, axis=-1, keepdims=True) + 1e-12)
-    # 计算每个单元的最大概率 (清晰度)
-    max_probs = jnp.max(rho_normalized, axis=-1)
-    # 灰度 = 1 - 最大概率 (度量模糊程度)
-    element_grayness = 1.0 - max_probs
-    # 全局平均灰度
-    grayness = jnp.mean(element_grayness)
-    # 清晰单元比例 (最大概率超过阈值)
-    clear_ratio = jnp.mean(max_probs > threshold)
-    return float(grayness), float(clear_ratio), element_grayness
-
+    return rho
