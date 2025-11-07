@@ -516,7 +516,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         def filter_chain(rho,WFC,ft):
             # rho = applyDensityFilter(ft, rho)
-            # rho,_,_=WFC(rho.reshape(-1,tileNum))
+            rho,_,_=WFC(rho.reshape(-1,tileNum))
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
@@ -539,13 +539,13 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
 
         # # 关键：用vjp_fn计算rho对rho_f的梯度，再乘以dJ_drho_f（链式法则）
-        # dJ_drho = vjp_fn(dJ_drho_f)[0]
-        # vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
-        # dvc_drho = vjp_batch(dvc_drho_f)[0]
-        # print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc.shape: {dvc_drho.shape}")
+        dJ_drho = vjp_fn(dJ_drho_f)[0]
+        vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
+        dvc_drho = vjp_batch(dvc_drho_f)[0]
+        print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc.shape: {dvc_drho.shape}")
 
-        dJ=dJ_drho_f
-        dvc=dvc_drho_f
+        dJ=dJ_drho
+        dvc=dvc_drho
         if sensitivity_filtering:
             dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
         print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")

@@ -34,7 +34,6 @@ from jax_fem.utils import save_sol
 from jax_fem.generate_mesh import get_meshio_cell_type, Mesh, rectangle_mesh, box_mesh_gmsh
 from jax_fem.mma import optimize
 
-from src.fem.SigmaInterpreter_SIMP import SigmaInterpreter
 from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
 from src.WFC.WFCFilter_JAX_log import waveFunctionCollapse
@@ -92,7 +91,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., -1e5])
+            return np.array([0., 0., -10])
         return [surface_map]
 
     def set_params(self, params):
@@ -170,30 +169,27 @@ class Elasticity(Problem):
 # Specify mesh-related information. We use first-order quadrilateral element.
 ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
-Lx, Ly, Lz = 10., 40., 20.
-Nx, Ny, Nz = 10, 40, 20
+# Lx, Ly, Lz = 60., 10., 30.
+# Nx, Ny, Nz = 60, 10, 30
+# Lx, Ly, Lz = 10., 2., 5.
+# Nx, Ny, Nz = 10, 2, 5
+Lx, Ly, Lz = 40., 5., 20.
+Nx, Ny, Nz = 40, 5, 20
 create_directory_if_not_exists("data/msh")
-if not os.path.exists("data/msh/box.msh"):
-    meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type)
+mshname=f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}.msh"
+if not os.path.exists(f"data/msh/{mshname}"):
+    meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type,name=mshname)
 else:
-    meshio_mesh = meshio.read("data/msh/box.msh")
+    meshio_mesh = meshio.read(f"data/msh/{mshname}")
 mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
 # Define boundary conditions and values.
 def fixed_location(point):
-    return np.isclose(point[1], 0., atol=0.1+1e-5)
+    return np.isclose(point[0], 0., atol=0.1+1e-5)
 
 def load_location(point):
     return np.logical_and(np.isclose(point[2], 0, atol=0.1*Lz+1e-5),
-                          np.isclose(point[1], Ly, atol=0.1*Ly+1e-5))
+                          np.isclose(point[0], Lx, atol=0.1*Lx+1e-5))
 
-# def load_location(point):
-#     return np.logical_and(
-#                 np.logical_and(
-#                     np.isclose(point[1], Ly, atol=1+1e-5),  # 自由端（y=Ly）
-#                     np.isclose(point[2], 0, atol=1+1e-5)),   # z=0的线
-#                 np.logical_and(
-#                     point[0] >= 4.,                      # x下限（仅中间局部）
-#                     point[0] <= 6.))                  # x上限（仅中间局部）
 
 
 def dirichlet_val(point):
@@ -202,16 +198,17 @@ def dirichlet_val(point):
 dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
-
-tileHandler = TileHandler(typeList=['BCC',], 
+tileHandler = TileHandler(typeList=['cubic1',], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
 # tileHandler.setConnectiability(fromTypeName='BCC',toTypeName=['void'],direction="isotropy",value=1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='FCCtube', toTypeName="FCCnp2dpillar", direction="isotropy",value=1,dual=True)
-tileHandler.selfConnectable(typeName=['BCC',],value=1)
+tileHandler.selfConnectable(typeName=['cubic1',],value=1)
 print(tileHandler)
 tileHandler.constantlize_compatibility()
-sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/C",debug=False)
+
+from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
+sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG",debug=False)
 print(sigmaInterpreter)
 # Define forward problem.
 problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
@@ -220,8 +217,8 @@ problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=di
 # Apply the automatic differentiation wrapper.
 # This is a critical step that makes the problem solver differentiable.
 # fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {}}, adjoint_solver_options={'petsc_solver': {}})
-# fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {'ksp_type':'tfqmr','pc_type':'lu'}}, adjoint_solver_options={'petsc_solver': {'ksp_type':'tfqmr','pc_type':'lu'}})
-fwd_pred = ad_wrapper(problem, solver_options={'umfpack_solver': {}}, adjoint_solver_options={'umfpack_solver': {}})
+fwd_pred = ad_wrapper(problem, solver_options={'petsc_solver': {'ksp_type':'tfqmr','pc_type':'lu'}}, adjoint_solver_options={'petsc_solver': {'ksp_type':'tfqmr','pc_type':'lu'}})
+# fwd_pred = ad_wrapper(problem, solver_options={'umfpack_solver': {}}, adjoint_solver_options={'umfpack_solver': {}})
 
 # Define the objective function 'J_total(theta)'.
 # In the following, 'sol = fwd_pred(params)' basically says U = U(theta).
@@ -271,17 +268,17 @@ vf0 = 0.35
 # vf2 = 0.35
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
 numConstraints = 1
-def consHandle(rho):
+def consHandle(rho,*args):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
     # dc should have shape (numConstraints, ...)
     # def computeGlobalVolumeConstraint(rho):
-    #     g = np.mean(rho)/vf1 - 1.
+    #     g = np.mean(rho)/vf0 - 1.
     #     return g
     c0, gradc0 = jax.value_and_grad(lambda rho: (np.mean(rho[...,0])/vf0)-1 )(rho)
     # c1, gradc1 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,1])-vf1),3) )(rho)
     # c2, gradc2 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,2])-vf2),3) )(rho)
-
+    # c0, gradc0 = jax.value_and_grad(computeGlobalVolumeConstraint)(rho)
 
     c=np.array([c0])
     gradc=np.array([ gradc0])
@@ -297,13 +294,15 @@ A, D = preprocess_adjacency(adj, tileHandler)
 wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
+optimizationParams = {'maxIters':51, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
 
 key = jax.random.PRNGKey(0)
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.5
-rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*vf0
+# rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
+import jax_fem.mma_ori as mo
 rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
+# rho_oped,J_list = mo.optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,)
 create_directory_if_not_exists("data/npy")
 np.save("data/npy/rho_oped",rho_oped)
 

@@ -13,14 +13,11 @@ class SigmaInterpreter:
     def __init__(self, typeList:List,folderPath:str=None,*args,** kwargs) -> None:
         self.typeList = typeList
         self.folderPath = folderPath
-        self.C_dict:Dict[str,np.ndarray] = {}
-        self.C:np.ndarray=None  # 包含用户材料 + void材料
+        self.EVG:np.ndarray=None # array [['E11', 'E22', 'E33', 'V12', 'V13', 'V23', 'V21', 'V31', 'V32', 'G12', 'G13', 'G23'],[...],...]
         self.debug=kwargs.get("debug",False)
-        void =void_C(E0=1,nu=0.3,eps=1e-9)
-        self.void = np.array(void)  # void的刚度矩阵
-        
         if not self.debug:
-            self._buildCDict()  # 构建包含void的刚度矩阵列表
+            self._buildEVG()  # 构建包含void的刚度矩阵列表
+            self.Cp_list=vmap(simp_stiffness_matrix,in_axes=(0,0,None))
     
 
     # @partial(jax.jit, static_argnames=())
@@ -28,39 +25,45 @@ class SigmaInterpreter:
         if self.debug:
             return stress(u_grad, weights.squeeze(axis=-1))
         
-        p = 4.0  # SIMP惩罚因子
-        pw=weights ** p
-        C_eff = np.einsum("...ijk,...i->...jk", self.C, pw) + self.void
+        Cp = self.Cp_list(self.EVG, weights,3.)
+        C_eff = np.sum(Cp,axis=-3,keepdims=False)
         return stress_anisotropic(C_eff, u_grad)
 
     def __repr__(self) -> str:
         if not self.debug:
-            header = f"{'idx':>3} {'type':>5} {'|C|':>10}"
+            header = f"{'idx':>3}  {'type':>5}"
             bar = "-" * len(header)
             lines = [header, bar]
-
-            c_norm = np.linalg.norm(self.C, axis=(1, 2))
             for ext_idx, typ in enumerate(self.typeList):
                 # 安全地把“外部索引”映射到“内部排序序号”
-                lines.append(f"{ext_idx:>3}   {typ:<12}  {c_norm[ext_idx]:>10.3e}")
+                lines.append(f"{ext_idx:>3}  {typ:<12}")
             return "\n".join(lines)
         if self.debug:
             return "debug mode"
     
-    def _buildCDict(self):
-        C_list = []
-        # 1. 加载用户传入的材料（外部材料）
+
+    def _buildEVG(self):
+        EVG_list = []
+        required_keys = ['E11', 'E22', 'E33', 'V12', 'V13', 'V23', 'V21', 'V31', 'V32', 'G12', 'G13', 'G23']
         for mat_type in self.typeList:
             file_path = os.path.join(self.folderPath, f"{mat_type}.json")
             try:
                 with open(file_path, 'r') as f:
                     data = json.load(f)
-                C_j = np.array(data)
-                C_list.append(C_j)
-                print(f"Loaded C for * {mat_type} * from {file_path}")
+                    for key in required_keys:
+                        if key not in data:
+                            raise ValueError(f"JSON数据缺少必要参数: {key},at {file_path}")
+                    # 提取材料参数
+                    E11, E22, E33 = data['E11'], data['E22'], data['E33']
+                    V12, V13, V23 = data['V12'], data['V13'], data['V23']
+                    V21, V31, V32 = data['V21'], data['V31'], data['V32']
+                    G12, G13, G23 = data['G12'], data['G13'], data['G23']
+                    EVG = np.array([E11,E22,E33,V12,V13,V23,V21,V31,V32,G12,G13,G23])
+                    EVG_list.append(EVG)
+                    print(f"Loaded EVG for * {mat_type} * from {file_path}")
             except Exception as e:
                 print(f"Error loading {file_path}: {e}")
-        self.C = np.array(C_list)  # 形状：(tileNum+1, 6, 6)（含void）
+        self.EVG = np.array(EVG_list)  # 形状：(tileNum+1, 6, 6)（含void）
 
 
 def stress( u_grad, theta, *args, **kwargs):
@@ -137,23 +140,65 @@ def stress_anisotropic( C, u_grad, *args, **kwargs):
     sigma = sigma.at[..., 1, 0].set(sigma_voigt[..., 5])  # σ21（对称）
     return sigma
   
-import numpy as onp
-def void_C(E0=1.0, nu=0.3, eps=1e-9):
-    """返回 6×6 各向同性刚度矩阵（接近 void）"""
-    E = eps * E0                      # 弹性模量缩小
-    C = onp.zeros((6, 6))
-    # 对角块
-    lam = E * nu / ((1 + nu) * (1 - 2 * nu))
-    mu = E / (2 * (1 + nu))
-    for i in range(3):
-        C[i, i] = lam + 2 * mu
-        for j in range(3):
-            if i != j:
-                C[i, j] = lam
-    # 剪切块
-    for i in range(3, 6):
-        C[i, i] = mu
-    return C.squeeze()
 
+def simp_stiffness_matrix(EVG:np.ndarray, rho, p=3):
+    """
+    对E参数应用SIMP惩罚并构建正交各向异性材料的刚度矩阵
+    
+    参数:
+        EVG : array ['E11', 'E22', 'E33', 'V12', 'V13', 'V23', 'V21', 'V31', 'V32', 'G12', 'G13', 'G23']
+        rho (float): 密度变量，范围[0,1]
+        p (float): SIMP惩罚因子，默认3
+    
+    返回:
+        np.ndarray: 6x6的刚度矩阵
+    """
+    # 检查输入参数完整性
+    E11=EVG[0]
+    E22=EVG[1]
+    E33=EVG[2]
+    V12=EVG[3]
+    V13=EVG[4]
+    V23=EVG[5]
+    V21=EVG[6]
+    V31=EVG[7]
+    V32=EVG[8]
+    G12=EVG[9]
+    G13=EVG[10]
+    G23=EVG[11]
+    
+    # SIMP惩罚：对弹性模量E应用ρ^p惩罚
+    E11_p = (rho ** p) * E11  # 惩罚后的E11
+    E22_p = (rho ** p) * E22  # 惩罚后的E22
+    E33_p = (rho ** p) * E33  # 惩罚后的E33
+    G12_p = (rho ** p) * G12
+    G13_p = (rho ** p) * G13
+    G23_p = (rho ** p) * G23
+
+
+    # 构建6x6柔度矩阵S（正交各向异性材料）
+    S = np.zeros((6, 6), dtype=np.float64)
+    # 正应力-正应变关系（前3x3块）
+    S=S.at[0, 0].set( 1 / E11_p)          # S11
+    S=S.at[0, 1].set( -V12 / E11_p)       # S12
+    S=S.at[0, 2].set( -V13 / E11_p )      # S13
+    S=S.at[1, 0].set( -V21 / E22_p )      # S21（应与S12对称）
+    S=S.at[1, 1].set( 1 / E22_p )         # S22
+    S=S.at[1, 2].set( -V23 / E22_p)       # S23
+    S=S.at[2, 0].set( -V31 / E33_p )      # S31（应与S13对称）
+    S=S.at[2, 1].set( -V32 / E33_p  )     # S32（应与S23对称）
+    S=S.at[2, 2].set( 1 / E33_p )         # S33
+    # 剪切应力-剪切应变关系（对角项）
+    S=S.at[3, 3].set( 1 / G23 ) # S44（对应2-3方向剪切）
+    S=S.at[4, 4].set( 1 / G13 ) # S55（对应1-3方向剪切）
+    S=S.at[5, 5].set( 1 / G12 ) # S66（对应1-2方向剪切）
+    
+    # 强制柔度矩阵对称（消除输入误差）
+    S = (S + S.T) / 2
+    
+    # 刚度矩阵 = 柔度矩阵的逆 ,如果奇异的话没有逆就会出问题
+    stiffness_matrix = np.linalg.inv(S)
+    
+    return stiffness_matrix
 
 

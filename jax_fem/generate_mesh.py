@@ -189,7 +189,7 @@ def box_mesh(Nx, Ny, Nz, domain_x, domain_y, domain_z):
     return out_mesh
 
 
-def box_mesh_gmsh(Nx, Ny, Nz, domain_x, domain_y, domain_z, data_dir, ele_type='HEX8'):
+def box_mesh_gmsh(Nx, Ny, Nz, domain_x, domain_y, domain_z, data_dir, ele_type='HEX8',name='box.msh'):
     """Generate a box mesh with the help of `gmsh <https://gmsh.info/>`_.
     Some useful links include
     `tutorial_hex <https://gitlab.onelab.info/gmsh/gmsh/-/blob/master/examples/api/hex.py>`_, 
@@ -229,7 +229,7 @@ def box_mesh_gmsh(Nx, Ny, Nz, domain_x, domain_y, domain_z, data_dir, ele_type='
 
     msh_dir = os.path.join(data_dir, 'msh')
     os.makedirs(msh_dir, exist_ok=True)
-    msh_file = os.path.join(msh_dir, 'box.msh')
+    msh_file = os.path.join(msh_dir, name)
 
     offset_x = 0.
     offset_y = 0.
