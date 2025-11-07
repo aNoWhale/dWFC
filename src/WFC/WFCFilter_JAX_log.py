@@ -1,6 +1,8 @@
 import os
 import sys
 import jax
+
+jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 from functools import partial
 import tqdm.rich as tqdm
@@ -54,7 +56,7 @@ def get_neighbors(csr, index):
 
 
 @partial(jax.jit, static_argnames=())
-def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_compatibility, log_init_probs, alpha=0.3):
+def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_compatibility, log_init_probs, key, alpha=0.1,):
     n_cells, n_tiles = log_probs.shape
     # 1. 生成软掩码（保持不变）
     collapse_mask = soft_mask(collapse_idx, n_cells)
@@ -70,7 +72,6 @@ def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_
     log_compat = jnp.take(log_compatibility, opposite_dirs, axis=0)  # 对数空间的兼容性矩阵
     
     # 添加微小噪声（对数空间）
-    key = jax.random.PRNGKey(jnp.mod(collapse_idx, 1000).astype(jnp.int32))
     noise = jax.random.normal(key, log_compat.shape) * 1e-8  # 噪声幅度降低
     log_compat = jnp.clip(log_compat + noise, -50, 0)  # 对数兼容性clip（最大0，最小-50）
     
@@ -151,20 +152,21 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility):
     compatibility_clipped = jnp.clip(compatibility, 1e-10, 1.0)  # 兼容性通常是0-1
     log_compatibility = jnp.log(compatibility_clipped)
     log_compatibility = jnp.clip(log_compatibility, -50, 0)  # 限制兼容性对数范围
-    
     # 3. 第一步：所有单元格依据log_init_probs进行update_by_neighbors
     def step1_update(carry, collapse_idx):
-        log_probs = carry
+        log_probs, current_key = carry
+        subkey, next_key = jax.random.split(current_key)
         updated_log_probs = update_by_neighbors(
             log_probs, collapse_idx, A, D, dirs_opposite_index, 
-            log_compatibility, log_init_probs
+            log_compatibility, log_init_probs,subkey
         )
-        return updated_log_probs, None
-    
-    log_probs_step1 = log_init_probs  # 初始对数概率
-    log_probs_step1, _ = jax.lax.scan(
+        return (updated_log_probs,next_key), None
+        
+    key = jax.random.PRNGKey(0)
+    log_carry1 = (log_init_probs,key)  # 初始对数概率
+    (log_probs_step1, _), _ = jax.lax.scan(
         step1_update,
-        init=log_probs_step1,
+        init=log_carry1,
         xs=jnp.arange(n_cells)
     )
     
@@ -184,7 +186,7 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility):
     
     # 5. 还原为概率空间（exp转换）
     final_probs = jnp.exp(final_log_probs)
-    final_probs = jnp.clip(final_probs, 1e-10, 1.0)  # 确保概率在合理范围
+    final_probs = jnp.clip(final_probs, 1e-10, 1.0-1e-10)  # 确保概率在合理范围
     # 最后归一化一次，消除exp带来的微小偏差
     # final_probs = final_probs / jnp.sum(final_probs, axis=-1, keepdims=True)
     
