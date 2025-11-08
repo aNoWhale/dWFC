@@ -36,7 +36,6 @@ from jax_fem.mma import optimize
 
 from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
-from src.WFC.WFCFilter_JAX_log import waveFunctionCollapse
 
 from pathlib import Path
 def create_directory_if_not_exists(directory_path):
@@ -288,7 +287,9 @@ def consHandle(rho,*args):
     return c, gradc
 
 adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
-from src.WFC.iterateWaveFunctionCollapseFilter import preprocess_adjacency
+from src.WFC.WFCFilter_JAX_log_monotonicity import preprocess_adjacency,waveFunctionCollapse
+
+
 # 预构建邻接矩阵和方向矩阵（仅一次）
 A, D = preprocess_adjacency(adj, tileHandler)
 wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
