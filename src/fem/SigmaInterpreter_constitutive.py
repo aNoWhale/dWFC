@@ -15,9 +15,10 @@ class SigmaInterpreter:
         self.folderPath = folderPath
         self.EVG:np.ndarray=None # array [['E11', 'E22', 'E33', 'V12', 'V13', 'V23', 'V21', 'V31', 'V32', 'G12', 'G13', 'G23'],[...],...]
         self.debug=kwargs.get("debug",False)
+        self.p= np.array(kwargs.pop('p',np.array([3.]*len(self.typeList))))
         if not self.debug:
             self._buildEVG()  # 构建包含void的刚度矩阵列表
-            self.Cp_list=vmap(simp_stiffness_matrix,in_axes=(0,0,None))
+            self.Cp_list=vmap(simp_stiffness_matrix,in_axes=(0,0,0))
     
 
     # @partial(jax.jit, static_argnames=())
@@ -25,7 +26,7 @@ class SigmaInterpreter:
         if self.debug:
             return stress(u_grad, weights.squeeze(axis=-1))
         
-        Cp = self.Cp_list(self.EVG, weights,3.)
+        Cp = self.Cp_list(self.EVG, weights,self.p)
         C_eff = np.sum(Cp,axis=-3,keepdims=False)
         return stress_anisotropic(C_eff, u_grad)
 
@@ -141,7 +142,7 @@ def stress_anisotropic( C, u_grad, *args, **kwargs):
     return sigma
   
 
-def simp_stiffness_matrix(EVG:np.ndarray, rho, p=3):
+def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
     """
     对E参数应用SIMP惩罚并构建正交各向异性材料的刚度矩阵
     
@@ -153,6 +154,8 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p=3):
     返回:
         np.ndarray: 6x6的刚度矩阵
     """
+    q=p
+
     # 检查输入参数完整性
     E11=EVG[0]
     E22=EVG[1]
@@ -166,32 +169,52 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p=3):
     G12=EVG[9]
     G13=EVG[10]
     G23=EVG[11]
-    
+    eps = 1e-10
+
+    E11_min=eps*E11
+    E22_min=eps*E22
+    E33_min=eps*E33
+    V12_min=eps*V12
+    V13_min=eps*V13
+    V23_min=eps*V23
+    V21_min=eps*V21
+    V31_min=eps*V31
+    V32_min=eps*V32
+    G12_min=eps*G12
+    G13_min=eps*G13
+    G23_min=eps*G23
+
     # SIMP惩罚：对弹性模量E应用ρ^p惩罚
-    E11_p = (rho ** p) * E11  # 惩罚后的E11
-    E22_p = (rho ** p) * E22  # 惩罚后的E22
-    E33_p = (rho ** p) * E33  # 惩罚后的E33
-    G12_p = (rho ** p) * G12
-    G13_p = (rho ** p) * G13
-    G23_p = (rho ** p) * G23
+    E11_p = E11_min + (rho ** p) * (E11-E11_min) 
+    E22_p = E22_min + (rho ** p) * (E22-E22_min) 
+    E33_p = E33_min + (rho ** p) * (E33-E33_min)
+    G12_p = G12_min + (rho ** p) * (G12-G12_min)
+    G13_p = G13_min + (rho ** p) * (G13-G13_min)
+    G23_p = G23_min + (rho ** p) * (G23-G23_min)
+    V12_p = V12_min + (rho ** q) * (V12-V12_min)
+    V13_p = V13_min + (rho ** q) * (V13-V13_min)
+    V23_p = V23_min + (rho ** q) * (V23-V23_min)
+    V21_p = V21_min + (rho ** q) * (V21-V21_min)
+    V31_p = V31_min + (rho ** q) * (V31-V31_min)
+    V32_p = V32_min + (rho ** q) * (V32-V32_min)
 
 
     # 构建6x6柔度矩阵S（正交各向异性材料）
     S = np.zeros((6, 6), dtype=np.float64)
     # 正应力-正应变关系（前3x3块）
     S=S.at[0, 0].set( 1 / E11_p)          # S11
-    S=S.at[0, 1].set( -V12 / E11_p)       # S12
-    S=S.at[0, 2].set( -V13 / E11_p )      # S13
-    S=S.at[1, 0].set( -V21 / E22_p )      # S21（应与S12对称）
+    S=S.at[0, 1].set( -V12_p / E11_p)       # S12
+    S=S.at[0, 2].set( -V13_p / E11_p )      # S13
+    S=S.at[1, 0].set( -V21_p / E22_p )      # S21（应与S12对称）
     S=S.at[1, 1].set( 1 / E22_p )         # S22
-    S=S.at[1, 2].set( -V23 / E22_p)       # S23
-    S=S.at[2, 0].set( -V31 / E33_p )      # S31（应与S13对称）
-    S=S.at[2, 1].set( -V32 / E33_p  )     # S32（应与S23对称）
+    S=S.at[1, 2].set( -V23_p / E22_p)       # S23
+    S=S.at[2, 0].set( -V31_p / E33_p )      # S31（应与S13对称）
+    S=S.at[2, 1].set( -V32_p / E33_p  )     # S32（应与S23对称）
     S=S.at[2, 2].set( 1 / E33_p )         # S33
     # 剪切应力-剪切应变关系（对角项）
-    S=S.at[3, 3].set( 1 / G23 ) # S44（对应2-3方向剪切）
-    S=S.at[4, 4].set( 1 / G13 ) # S55（对应1-3方向剪切）
-    S=S.at[5, 5].set( 1 / G12 ) # S66（对应1-2方向剪切）
+    S=S.at[3, 3].set( 1 / G23_p ) # S44（对应2-3方向剪切）
+    S=S.at[4, 4].set( 1 / G13_p ) # S55（对应1-3方向剪切）
+    S=S.at[5, 5].set( 1 / G12_p ) # S66（对应1-2方向剪切）
     
     # 强制柔度矩阵对称（消除输入误差）
     S = (S + S.T) / 2

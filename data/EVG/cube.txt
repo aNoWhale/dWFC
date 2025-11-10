@@ -1,0 +1,19 @@
+ Property        Value                Unit        
+   E11     209999.99985098827     Stress units    
+   V12    0.27000010011720693        ratio        
+   V13     0.2700000419095285        ratio        
+   E22     209999.99985098827     Stress units    
+   V21     0.2700000072759578        ratio        
+   V23     0.2699999963620211        ratio        
+   E33     209999.99985098827     Stress units    
+   V31    0.26999995940015664        ratio        
+   V32     0.2699999994179234        ratio        
+   G12     82677.16538953024      Stress units    
+   G13     82677.16538953024      Stress units    
+   G23     82677.16538953024      Stress units    
+  CTE X           N/A                 N/A         
+  CTE Y           N/A                 N/A         
+  CTE Z           N/A                 N/A         
+Total mass=7.85e-15 Mass units 
+Homogenised density=7.85000052638355e-09 Density units 
+processing duration 97.8809902667999 Seconds

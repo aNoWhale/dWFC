@@ -68,6 +68,77 @@ def applySensitivityFilter(ft, rho, dJ, dvc):
 def applyDensityFilter(ft, rho):
     return ft['H'] @ rho / ft['Hs'][:, None]
 
+
+def applySensitivityFilter_multi(ft, rho, dJ, dvc, beta=1.0):
+    """
+    修正版多材料灵敏度过滤器：兼容多约束(C, N, n)，使用JAX规范
+    dJ: 形状(N, n)，dvc: 形状(C, N, n)（C为约束数量，支持C=1或C>1）
+    """
+    N, n = rho.shape
+    H = ft['H']  # JAX BCOO稀疏矩阵 (N, N)
+    
+    # 1. 计算总材料量和其他材料存在度（与密度过滤一致）
+    total_material = rho.sum(axis=1, keepdims=True)  # (N, 1)
+    O_jk = total_material - rho  # (N, n)：其他材料存在度
+    weight_factor = 1 + beta * O_jk  # (N, n)：耦合权重因子
+    weight_sum = H @ weight_factor  # (N, n)：归一化因子（共享）
+    
+    # ---------------------- 处理目标函数灵敏度dJ ----------------------
+    pre_dJ = (rho * dJ) / jnp.maximum(1e-3, rho)  # JAX函数，(N, n)
+    weighted_dJ = pre_dJ * weight_factor  # (N, n)
+    numerator_dJ = H @ weighted_dJ  # (N, n)
+    dJ_tilde = numerator_dJ / jnp.maximum(1e-12, weight_sum)  # (N, n)
+    
+    # ---------------------- 处理体积约束灵敏度dvc（兼容多约束） ----------------------
+    # 扩展rho和weight_factor的维度，与dvc的(C, N, n)广播匹配
+    rho_expanded = rho[jnp.newaxis, ...]  # (1, N, n) → 与dvc的(C, N, n)广播
+    weight_factor_expanded = weight_factor[jnp.newaxis, ...]  # (1, N, n)
+    
+    # 灵敏度预处理（保留约束维度C）
+    pre_dvc = (rho_expanded * dvc) / jnp.maximum(1e-3, rho_expanded)  # (C, N, n)
+    
+    # 加权（耦合因子作用于所有约束）
+    weighted_dvc = pre_dvc * weight_factor_expanded  # (C, N, n)
+    
+    # 稀疏矩阵批量乘法（H仅作用于单元维度N）
+    numerator_dvc = H @ weighted_dvc  # (C, N, n)
+    
+    # 归一化（保留约束维度）
+    dvc_tilde = numerator_dvc / jnp.maximum(1e-12, weight_sum[jnp.newaxis, ...])  # (C, N, n)
+    
+    return dJ_tilde, dvc_tilde
+
+
+def applyDensityFilter_multi(ft, rho, beta=1.0):
+    """
+    多材料密度过滤器（向量计算版）：同时处理所有材料，避免循环
+    输入rho形状为(N, n)，N为单元数，n为材料种类
+    """
+    N, n = rho.shape
+    H = ft['H']  # 稀疏矩阵 (N, N)，单元邻域权重
+    
+    # 1. 计算总材料量（每个单元所有材料的总和）：形状(N, 1)
+    total_material = rho.sum(axis=1, keepdims=True)  # 广播到(N, n)
+    
+    # 2. 计算其他材料存在度 O_j^k = 总材料量 - 当前材料量：形状(N, n)
+    O_jk = total_material - rho  # 利用广播，自动适配每个材料k
+    
+    # 3. 计算加权因子：(1 + beta * O_j^k)，形状(N, n)
+    weight_factor = 1 + beta * O_jk
+    
+    # 4. 计算分子项：H @ (rho * weight_factor)，形状(N, n)
+    # 稀疏矩阵H与(N, n)数组相乘时，自动对每一列做矩阵-向量乘法
+    numerator = H @ (rho * weight_factor)  # 结果(N, n)
+    
+    # 5. 计算归一化因子：H @ weight_factor，形状(N, n)
+    weight_sum = H @ weight_factor  # 结果(N, n)
+    
+    # 6. 过滤后密度（避免除零）
+    rho_tilde = numerator / np.maximum(1e-12, weight_sum)
+    
+    return rho_tilde
+
+
 #%% Optimizer
 class MMA:
     # The code was modified from [MMA Svanberg 1987]. Please cite the paper if
@@ -475,9 +546,11 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     rho = rho_ini
     J_list=[]
     con_violation_last = 0
+    rfmean_last=0
+    rfmin_last=0
+    rfmax_last=0
 
-
-    H, Hs = compute_filter_kd_tree(fe,r_factor = 1.5)
+    H, Hs = compute_filter_kd_tree(fe,r_factor = 1.8)
     ft = {'H':H, 'Hs':Hs}
 
     loop = 0
@@ -514,26 +587,34 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print("rho 最小值：", jnp.min(rho))
         print("rho 最大值：", jnp.max(rho))
 
-        def filter_chain(rho,WFC,ft):
+        def filter_chain(rho,WFC,ft,loop):
             # rho = applyDensityFilter(ft, rho)
             rho,_,_=WFC(rho.reshape(-1,tileNum))
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+            rho = heaviside(rho,2^(loop//5))
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):
-            return filter_chain(r, WFC, ft)
+            return filter_chain(r, WFC, ft,loop)
 
         # 构建VJP：fwd_func返回(rho_f, vjp_fn)，其中vjp_fn用于计算梯度
         rho_f_vjp, vjp_fn = jax.vjp(filter_chain_vjp, rho)
 
 
         rho_f = rho
-        print("rho_f 均值：", jnp.mean(rho_f))
-        print("rho_f 最小值：", jnp.min(rho_f))
-        print("rho_f 最大值：", jnp.max(rho_f))
-        
+        rfmean = jnp.mean(rho_f)
+        rfmin = jnp.min(rho_f)
+        rfmax = jnp.max(rho_f)
+        print(f"rho_f 均值：{rfmean}; change:{rfmean - rfmean_last}")
+        print(f"rho_f 最小值：{rfmin}; change:{rfmin - rfmin_last}")
+        print(f"rho_f 最大值：{rfmax}; change:{rfmax - rfmax_last}")
+        rfmean_last = rfmean
+        rfmin_last = rfmin
+        rfmax_last = rfmax
+
         J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
         vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
+        print(f"dJ_drho_f.shape: {dJ_drho_f.shape}\ndvc_drho_f.shape: {dvc_drho_f.shape}")
 
 
 
@@ -542,12 +623,14 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         dJ_drho = vjp_fn(dJ_drho_f)[0]
         vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
         dvc_drho = vjp_batch(dvc_drho_f)[0]
-        print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc.shape: {dvc_drho.shape}")
+        print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc_drho.shape: {dvc_drho.shape}")
 
         dJ=dJ_drho
         dvc=dvc_drho
         if sensitivity_filtering:
-            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
+            # dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
+            dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
+
         print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
 
 
@@ -647,3 +730,16 @@ def compute_material_grayness(rho_f: jnp.ndarray,
     clear_ratio = jnp.mean(max_probs > threshold)
     return float(grayness), float(clear_ratio), element_grayness
 
+@jit
+def heaviside(x: jnp.ndarray, beta: float = 10.0) -> jnp.ndarray:
+    """
+    简化的Heaviside投影函数。
+    
+    参数:
+        x: 输入数组
+        beta: 投影锐度参数
+    返回:
+        投影后的数组
+    """
+    return jnp.tanh(beta * 0.5) + jnp.tanh(beta * (x - 0.5)) / (
+        jnp.tanh(beta * 0.5) + jnp.tanh(beta * 0.5))

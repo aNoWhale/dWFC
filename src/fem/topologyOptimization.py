@@ -90,7 +90,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., -10])
+            return np.array([0., 0., -1])
         return [surface_map]
 
     def set_params(self, params):
@@ -197,17 +197,17 @@ def dirichlet_val(point):
 dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
-tileHandler = TileHandler(typeList=['cubic1',], 
+tileHandler = TileHandler(typeList=['BCC3','cubic1'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-# tileHandler.setConnectiability(fromTypeName='BCC',toTypeName=['void'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='cubic1',toTypeName=['BCC3'],direction="isotropy",value=1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='FCCtube', toTypeName="FCCnp2dpillar", direction="isotropy",value=1,dual=True)
-tileHandler.selfConnectable(typeName=['cubic1',],value=1)
+tileHandler.selfConnectable(typeName=['BCC3','cubic1'],value=1)
 print(tileHandler)
 tileHandler.constantlize_compatibility()
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
-sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG",debug=False)
+sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", p=[3,4], debug=False) #3,4
 print(sigmaInterpreter)
 # Define forward problem.
 problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
@@ -262,11 +262,38 @@ def objectiveHandle(rho):
     output_sol(rho, J, sol)
     return J, dJ
 
-vf0 = 0.35
-# vf1 = 0.35
+@jax.jit
+def material_selection_loss(rho, alpha=5.0):
+    x_safe = np.clip(rho, 1e-8, 1.0 - 1e-8)
+    
+    # 沿n轴计算每个cell的最大值和总和
+    max_vals = np.max(x_safe, axis=1)  # 形状: (cells,)
+    sum_vals = np.sum(x_safe, axis=1)  # 形状: (cells,)
+    
+    # 处理全0情况
+    zero_mask = np.all(x_safe < 1e-6, axis=1)  # 形状: (cells,)
+    concentrations = np.where(zero_mask, 1.0, max_vals / (sum_vals + 1e-8))
+    
+    # 基础损失
+    losses = 1.0 - concentrations  # 形状: (cells,)
+    
+    # 惩罚项（每个cell的惩罚）
+    penalties = np.sum(x_safe * (1.0 - x_safe), axis=1)  # 形状: (cells,)
+    
+    # 总损失
+    cell_losses = losses + alpha * 0.01 * penalties
+    total_loss = np.mean(cell_losses)
+    
+    return total_loss
+
+
+
+vt=0.5
+vf0 = 0.3
+vf1 = 0.2
 # vf2 = 0.35
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
-numConstraints = 1
+numConstraints = 4
 def consHandle(rho,*args):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
@@ -274,13 +301,18 @@ def consHandle(rho,*args):
     # def computeGlobalVolumeConstraint(rho):
     #     g = np.mean(rho)/vf0 - 1.
     #     return g
+    def totalVolume(rho):
+        t = np.mean(np.sum(rho,axis=-1,keepdims=False))/vt -1 #没用二次形式的时候应该也行
+        return t
     c0, gradc0 = jax.value_and_grad(lambda rho: (np.mean(rho[...,0])/vf0)-1 )(rho)
-    # c1, gradc1 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,1])-vf1),3) )(rho)
+    c1, gradc1 = jax.value_and_grad(lambda rho: (np.mean(rho[...,1])/vf1)-1 )(rho)
     # c2, gradc2 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,2])-vf2),3) )(rho)
     # c0, gradc0 = jax.value_and_grad(computeGlobalVolumeConstraint)(rho)
+    ct, gradct = jax.value_and_grad(totalVolume)(rho)
+    cm , gradcm = jax.value_and_grad(material_selection_loss)(rho)
 
-    c=np.array([c0])
-    gradc=np.array([ gradc0])
+    c=np.array([ct, cm, c0, c1])
+    gradc=np.array([gradct, gradcm, gradc0, gradc1])
     # print(f"c.shape:{c.shape}")
     # print(f"gradc.shape:{gradc.shape}")
     c = c.reshape((-1,))
@@ -298,7 +330,8 @@ wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array
 optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
 
 key = jax.random.PRNGKey(0)
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*vf0
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.35
+rho_ini = rho_ini.at[:,1].set(0.25)
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
 import jax_fem.mma_ori as mo
