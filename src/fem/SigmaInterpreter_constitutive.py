@@ -160,21 +160,21 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
     q=p
     
     # 检查输入参数完整性
-    E11=EVG[0]
-    E22=EVG[1]
-    E33=EVG[2]
-    V12=EVG[3]
-    V13=EVG[4]
-    V23=EVG[5]
-    V21=EVG[6]
-    V31=EVG[7]
-    V32=EVG[8]
-    G12=EVG[9]
-    G13=EVG[10]
-    G23=EVG[11]
+    E11=EVG[0][:,None] #(tiles, 1)
+    E22=EVG[1][:,None]
+    E33=EVG[2][:,None]
+    V12=EVG[3][:,None]
+    V13=EVG[4][:,None]
+    V23=EVG[5][:,None]
+    V21=EVG[6][:,None]
+    V31=EVG[7][:,None]
+    V32=EVG[8][:,None]
+    G12=EVG[9][:,None]
+    G13=EVG[10][:,None]
+    G23=EVG[11][:,None]
     eps = 1e-10
 
-    E11_min=eps*E11
+    E11_min=eps*E11 #(tiles, 1)
     E22_min=eps*E22
     E33_min=eps*E33
     V12_min=eps*V12
@@ -188,18 +188,18 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
     G23_min=eps*G23
 
     # SIMP惩罚：对弹性模量E应用ρ^p惩罚
-    E11_p = E11_min + (rho ** p) * (E11-E11_min) 
-    E22_p = E22_min + (rho ** p) * (E22-E22_min) 
-    E33_p = E33_min + (rho ** p) * (E33-E33_min)
-    G12_p = G12_min + (rho ** p) * (G12-G12_min)
-    G13_p = G13_min + (rho ** p) * (G13-G13_min)
-    G23_p = G23_min + (rho ** p) * (G23-G23_min)
-    V12_p = V12_min + (rho ** q) * (V12-V12_min)
-    V13_p = V13_min + (rho ** q) * (V13-V13_min)
-    V23_p = V23_min + (rho ** q) * (V23-V23_min)
-    V21_p = V21_min + (rho ** q) * (V21-V21_min)
-    V31_p = V31_min + (rho ** q) * (V31-V31_min)
-    V32_p = V32_min + (rho ** q) * (V32-V32_min)
+    E11_p = E11_min + (rho ** p)[:,None] * (E11-E11_min) #(tiles, 1) ((tiles,)**(tiles,))
+    E22_p = E22_min + (rho ** p)[:,None] * (E22-E22_min) 
+    E33_p = E33_min + (rho ** p)[:,None] * (E33-E33_min)
+    G12_p = G12_min + (rho ** p)[:,None] * (G12-G12_min)
+    G13_p = G13_min + (rho ** p)[:,None] * (G13-G13_min)
+    G23_p = G23_min + (rho ** p)[:,None] * (G23-G23_min)
+    V12_p = V12_min + (rho ** q)[:,None] * (V12-V12_min)
+    V13_p = V13_min + (rho ** q)[:,None] * (V13-V13_min)
+    V23_p = V23_min + (rho ** q)[:,None] * (V23-V23_min)
+    V21_p = V21_min + (rho ** q)[:,None] * (V21-V21_min)
+    V31_p = V31_min + (rho ** q)[:,None] * (V31-V31_min)
+    V32_p = V32_min + (rho ** q)[:,None] * (V32-V32_min)
 
     return compose_stiffness_matrix(np.array([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p]))
 
