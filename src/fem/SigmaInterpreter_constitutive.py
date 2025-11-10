@@ -201,7 +201,7 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
     V31_p = V31_min + (rho ** q)[:,None] * (V31-V31_min)
     V32_p = V32_min + (rho ** q)[:,None] * (V32-V32_min)
 
-    return compose_stiffness_matrix(np.array([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p]))
+    return compose_stiffness_matrix(np.concatenate([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p],axis=-1))
 
 
 def hpdmo_stiffness_matrix(EVGs:np.ndarray, rhos, ps, beta=3):
