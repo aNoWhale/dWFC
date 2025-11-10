@@ -160,18 +160,18 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
     q=p
     
     # 检查输入参数完整性
-    E11=EVG[0][:,None] #(tiles, 1)
-    E22=EVG[1][:,None]
-    E33=EVG[2][:,None]
-    V12=EVG[3][:,None]
-    V13=EVG[4][:,None]
-    V23=EVG[5][:,None]
-    V21=EVG[6][:,None]
-    V31=EVG[7][:,None]
-    V32=EVG[8][:,None]
-    G12=EVG[9][:,None]
-    G13=EVG[10][:,None]
-    G23=EVG[11][:,None]
+    E11=EVG[...,0][:,None] #(tiles, 1)
+    E22=EVG[...,1][:,None]
+    E33=EVG[...,2][:,None]
+    V12=EVG[...,3][:,None]
+    V13=EVG[...,4][:,None]
+    V23=EVG[...,5][:,None]
+    V21=EVG[...,6][:,None]
+    V31=EVG[...,7][:,None]
+    V32=EVG[...,8][:,None]
+    G12=EVG[...,9][:,None]
+    G13=EVG[...,10][:,None]
+    G23=EVG[...,11][:,None]
     eps = 1e-10
 
     E11_min=eps*E11 #(tiles, 1)
