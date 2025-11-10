@@ -18,7 +18,6 @@ class SigmaInterpreter:
         self.p= np.array(kwargs.pop('p',np.array([3.]*len(self.typeList))))
         if not self.debug:
             self._buildEVG()  # 构建包含void的刚度矩阵列表
-            self.simp_Cp_vmap=vmap(simp_stiffness_matrix,in_axes=(0,0,0))
     
 
     # @partial(jax.jit, static_argnames=())
@@ -26,8 +25,9 @@ class SigmaInterpreter:
         if self.debug:
             return stress(u_grad, weights.squeeze(axis=-1))
         
-        # Cp = self.simp_Cp_vmap(self.EVG, weights,self.p)
-        Cp_list = hpdmo_stiffness_matrix(self.EVG,weights,self.p,*args)
+
+        Cp_list = simp_stiffness_matrix(self.EVG,weights,self.p)
+        # Cp_list = hpdmo_stiffness_matrix(self.EVG,weights,self.p,*args)
 
         C_eff = np.sum(Cp_list,axis=-3,keepdims=False)
         return stress_anisotropic(C_eff, u_grad)
@@ -204,7 +204,7 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
     return compose_stiffness_matrix(np.array([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p]))
 
 
-def hpdmo_stiffness_matrix(EVGs:np.ndarray, rhos, ps, beta=10):
+def hpdmo_stiffness_matrix(EVGs:np.ndarray, rhos, ps, beta=3):
     tau=0.5
     upper = smooth_heaviside((rhos-tau),beta)*rhos**ps # (tiles,)*(tiles,) ** (tiles )
     # weightsDMO = upper/np.sum(upper,axis=-1,keepdims=False)

@@ -577,8 +577,8 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         start_time=time.time()
         loop = loop + 1
         np.save(f"data/npy/{loop}",rho)
-        alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
-        # alpha = 1
+        # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
+        alpha = 1
         
         print(f"MMA solver...")
         print(f"collapsing...")
@@ -615,21 +615,26 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
         vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
         print(f"dJ_drho_f.shape: {dJ_drho_f.shape}\ndvc_drho_f.shape: {dvc_drho_f.shape}")
-
-
-
+        print(f"dJ_drho_f.max: {jnp.max(dJ_drho_f)}")
+        print(f"dJ_drho_f.min: {jnp.min(dJ_drho_f)}")
+        print(f"dvc_drho_f.max: {jnp.max(dvc_drho_f)}")
+        print(f"dvc_drho_f.min: {jnp.min(dvc_drho_f)}")
 
         # # 关键：用vjp_fn计算rho对rho_f的梯度，再乘以dJ_drho_f（链式法则）
         dJ_drho = vjp_fn(dJ_drho_f)[0]
         vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
         dvc_drho = vjp_batch(dvc_drho_f)[0]
         print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc_drho.shape: {dvc_drho.shape}")
+        print(f"dJ_drho.max: {jnp.max(dJ_drho)}")   
+        print(f"dJ_drho.min: {jnp.min(dJ_drho)}")
+        print(f"dvc_drho.max: {jnp.max(dvc_drho)}")
+        print(f"dvc_drho.min: {jnp.min(dvc_drho)}")
 
         dJ=dJ_drho
         dvc=dvc_drho
         if sensitivity_filtering:
-            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
-            # dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
+            # dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
+            dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
 
         print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
 

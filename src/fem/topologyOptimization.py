@@ -90,7 +90,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., -1])
+            return np.array([0., 0., -100])
         return [surface_map]
 
     def set_params(self, params):
@@ -292,7 +292,7 @@ def material_selection_loss(rho, alpha=5.0):
 
 
 
-vt=0.7
+vt=0.6
 vf0 = 0.3
 vf1 = 0.2
 vf2 = 0.2
@@ -338,6 +338,8 @@ optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sens
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.35
 rho_ini = rho_ini.at[:,1].set(0.25)
+rho_ini = rho_ini.at[:,2].set(0.25)
+
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
 import jax_fem.mma_ori as mo
