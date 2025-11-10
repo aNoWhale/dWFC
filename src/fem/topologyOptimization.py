@@ -90,7 +90,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., -100])
+            return np.array([0., 0., -1])
         return [surface_map]
 
     def set_params(self, params):
@@ -198,23 +198,23 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['BCC3', 'cubic1'], 
-                          direction=(('back',"front"),("left","right"),("top","bottom")),
-                          direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.selfConnectable(typeName=['BCC3', 'cubic1'],value=1)
-tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
+# tileHandler = TileHandler(typeList=['BCC3', 'cubic1'], 
+#                           direction=(('back',"front"),("left","right"),("top","bottom")),
+#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+# tileHandler.selfConnectable(typeName=['BCC3', 'cubic1'],value=1)
+# tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
 
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
 
 
-# tileHandler = TileHandler(typeList=['BCC3', 'cubic1', '++'], 
-#                           direction=(('back',"front"),("left","right"),("top","bottom")),
-#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-# tileHandler.selfConnectable(typeName=['++','BCC3', 'cubic1'],value=1)
-# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3','cubic1'],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
-# # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
+tileHandler = TileHandler(typeList=['BCC3', 'cubic1', '++'], 
+                          direction=(('back',"front"),("left","right"),("top","bottom")),
+                          direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+tileHandler.selfConnectable(typeName=['++','BCC3', 'cubic1'],value=1)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3','cubic1'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
 
 
 # tileHandler = TileHandler(typeList=['++', 'TTx0', 'TTx180'], 
@@ -314,12 +314,12 @@ def material_selection_loss(rho, alpha=5.0):
 
 
 
-vt=0.6
+vt=0.7
 vf0 = 0.3
 vf1 = 0.2
-# vf2 = 0.2
+vf2 = 0.2
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
-numConstraints = 4
+numConstraints = 5
 def consHandle(rho,*args):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
@@ -334,13 +334,13 @@ def consHandle(rho,*args):
     cm , gradcm = jax.value_and_grad(material_selection_loss)(rho)
     c0, gradc0 = jax.value_and_grad(lambda rho: (np.mean(rho[...,0])/vf0)-1 )(rho)
     c1, gradc1 = jax.value_and_grad(lambda rho: (np.mean(rho[...,1])/vf1)-1 )(rho)
-    # c2, gradc2 = jax.value_and_grad(lambda rho: (np.mean(rho[...,2])/vf2)-1 )(rho)
+    c2, gradc2 = jax.value_and_grad(lambda rho: (np.mean(rho[...,2])/vf2)-1 )(rho)
     # c0, gradc0 = jax.value_and_grad(computeGlobalVolumeConstraint)(rho)
     # c=np.array([ ct,c0,c1 ])
     # gradc=np.array([ gradct,gradc0,gradc1])
 
-    c=np.array([ct, cm, c0, c1 ])
-    gradc=np.array([gradct, gradcm, gradc0, gradc1 ])
+    c=np.array([ct, cm, c0, c1, c2 ])
+    gradc=np.array([gradct, gradcm, gradc0, gradc1, gradc2 ])
     # print(f"c.shape:{c.shape}")
     # print(f"gradc.shape:{gradc.shape}")
     c = c.reshape((-1,))
@@ -355,12 +355,12 @@ A, D = preprocess_adjacency(adj, tileHandler)
 wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
+optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
 
 key = jax.random.PRNGKey(0)
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.7
-rho_ini = rho_ini.at[:,1].set(0.7)
-rho_ini = rho_ini.at[:,2].set(0.7)
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.35
+rho_ini = rho_ini.at[:,1].set(0.25)
+rho_ini = rho_ini.at[:,2].set(0.25)
 
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
