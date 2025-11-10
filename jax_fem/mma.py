@@ -577,8 +577,8 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         start_time=time.time()
         loop = loop + 1
         np.save(f"data/npy/{loop}",rho)
-        # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
-        alpha = 1
+        alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
+        # alpha = 1
         
         print(f"MMA solver...")
         print(f"collapsing...")
