@@ -577,8 +577,8 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         start_time=time.time()
         loop = loop + 1
         np.save(f"data/npy/{loop}",rho)
-        # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
-        alpha = 1
+        alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
+        # alpha = 1
         
         print(f"MMA solver...")
         print(f"collapsing...")
@@ -591,7 +591,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             # rho = applyDensityFilter(ft, rho)
             rho,_,_=WFC(rho.reshape(-1,tileNum))
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
-            rho = heaviside(rho,2^(loop//5))
+            # rho = heaviside(rho,2^(loop//5))
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):
@@ -628,8 +628,8 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         dJ=dJ_drho
         dvc=dvc_drho
         if sensitivity_filtering:
-            # dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
-            dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
+            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
+            # dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
 
         print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
 

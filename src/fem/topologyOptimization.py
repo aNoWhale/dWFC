@@ -197,17 +197,21 @@ def dirichlet_val(point):
 dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
-tileHandler = TileHandler(typeList=['BCC3','cubic1'], 
+tileHandler = TileHandler(typeList=['++', 'TTx0', 'TTx180'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.setConnectiability(fromTypeName='cubic1',toTypeName=['BCC3'],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='FCCtube', toTypeName="FCCnp2dpillar", direction="isotropy",value=1,dual=True)
-tileHandler.selfConnectable(typeName=['BCC3','cubic1'],value=1)
+tileHandler.selfConnectable(typeName=['++','TTx0', 'TTx180'],value=1)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
+
+
 print(tileHandler)
 tileHandler.constantlize_compatibility()
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
-sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", p=[3,4], debug=False) #3,4
+sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", p=[3,3,3], debug=False) #3,4
 print(sigmaInterpreter)
 # Define forward problem.
 problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
@@ -288,12 +292,12 @@ def material_selection_loss(rho, alpha=5.0):
 
 
 
-vt=0.5
+vt=0.7
 vf0 = 0.3
 vf1 = 0.2
-# vf2 = 0.35
+vf2 = 0.2
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
-numConstraints = 4
+numConstraints = 5
 def consHandle(rho,*args):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
@@ -304,15 +308,17 @@ def consHandle(rho,*args):
     def totalVolume(rho):
         t = np.mean(np.sum(rho,axis=-1,keepdims=False))/vt -1 #没用二次形式的时候应该也行
         return t
-    c0, gradc0 = jax.value_and_grad(lambda rho: (np.mean(rho[...,0])/vf0)-1 )(rho)
-    c1, gradc1 = jax.value_and_grad(lambda rho: (np.mean(rho[...,1])/vf1)-1 )(rho)
-    # c2, gradc2 = jax.value_and_grad(lambda rho: np.power((np.mean(rho[...,2])-vf2),3) )(rho)
-    # c0, gradc0 = jax.value_and_grad(computeGlobalVolumeConstraint)(rho)
     ct, gradct = jax.value_and_grad(totalVolume)(rho)
     cm , gradcm = jax.value_and_grad(material_selection_loss)(rho)
+    c0, gradc0 = jax.value_and_grad(lambda rho: (np.mean(rho[...,0])/vf0)-1 )(rho)
+    c1, gradc1 = jax.value_and_grad(lambda rho: (np.mean(rho[...,1])/vf1)-1 )(rho)
+    c2, gradc2 = jax.value_and_grad(lambda rho: (np.mean(rho[...,2])/vf2)-1 )(rho)
+    # c0, gradc0 = jax.value_and_grad(computeGlobalVolumeConstraint)(rho)
+    # c=np.array([ ct,c0,c1 ])
+    # gradc=np.array([ gradct,gradc0,gradc1])
 
-    c=np.array([ct, cm, c0, c1])
-    gradc=np.array([gradct, gradcm, gradc0, gradc1])
+    c=np.array([ct, cm, c0, c1, c2])
+    gradc=np.array([gradct, gradcm, gradc0, gradc1, gradc2])
     # print(f"c.shape:{c.shape}")
     # print(f"gradc.shape:{gradc.shape}")
     c = c.reshape((-1,))

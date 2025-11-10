@@ -18,7 +18,7 @@ class SigmaInterpreter:
         self.p= np.array(kwargs.pop('p',np.array([3.]*len(self.typeList))))
         if not self.debug:
             self._buildEVG()  # 构建包含void的刚度矩阵列表
-            self.Cp_list=vmap(simp_stiffness_matrix,in_axes=(0,0,0))
+            self.simp_Cp_vmap=vmap(simp_stiffness_matrix,in_axes=(0,0,0))
     
 
     # @partial(jax.jit, static_argnames=())
@@ -26,8 +26,10 @@ class SigmaInterpreter:
         if self.debug:
             return stress(u_grad, weights.squeeze(axis=-1))
         
-        Cp = self.Cp_list(self.EVG, weights,self.p)
-        C_eff = np.sum(Cp,axis=-3,keepdims=False)
+        # Cp = self.simp_Cp_vmap(self.EVG, weights,self.p)
+        Cp_list = hpdmo_stiffness_matrix(self.EVG,weights,self.p,*args)
+
+        C_eff = np.sum(Cp_list,axis=-3,keepdims=False)
         return stress_anisotropic(C_eff, u_grad)
 
     def __repr__(self) -> str:
@@ -95,6 +97,7 @@ def stress( u_grad, theta, *args, **kwargs):
     # print(f"sigma:{sigma}")
     return sigma
 
+
 def stress_anisotropic( C, u_grad, *args, **kwargs):
     """
     计算三维各向异性材料的应力张量
@@ -155,7 +158,7 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
         np.ndarray: 6x6的刚度矩阵
     """
     q=p
-
+    
     # 检查输入参数完整性
     E11=EVG[0]
     E22=EVG[1]
@@ -198,30 +201,117 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
     V31_p = V31_min + (rho ** q) * (V31-V31_min)
     V32_p = V32_min + (rho ** q) * (V32-V32_min)
 
+    return compose_stiffness_matrix(np.array([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p]))
 
+
+def hpdmo_stiffness_matrix(EVGs:np.ndarray, rhos, ps, beta=10):
+    tau=0.5
+    upper = smooth_heaviside((rhos-tau),beta)*rhos**ps # (tiles,)*(tiles,) ** (tiles )
+    # weightsDMO = upper/np.sum(upper,axis=-1,keepdims=False)
+    weightsDMO  = upper
+    #EVGs (tiles,12)
+    E11=EVGs[...,0][:,None] #(tiles, 1)
+    E22=EVGs[...,1][:,None]
+    E33=EVGs[...,2][:,None]
+    V12=EVGs[...,3][:,None]
+    V13=EVGs[...,4][:,None]
+    V23=EVGs[...,5][:,None]
+    V21=EVGs[...,6][:,None]
+    V31=EVGs[...,7][:,None]
+    V32=EVGs[...,8][:,None]
+    G12=EVGs[...,9][:,None]
+    G13=EVGs[...,10][:,None]
+    G23=EVGs[...,11][:,None]
+    eps = 1e-10
+
+    E11_min=eps*E11 #(tiles, )
+    E22_min=eps*E22
+    E33_min=eps*E33
+    V12_min=eps*V12
+    V13_min=eps*V13
+    V23_min=eps*V23
+    V21_min=eps*V21
+    V31_min=eps*V31
+    V32_min=eps*V32
+    G12_min=eps*G12
+    G13_min=eps*G13
+    G23_min=eps*G23
+
+    # SIMP惩罚：对弹性模量E应用ρ^p惩罚
+    E11_p = E11_min + (weightsDMO[:,None]) * (E11-E11_min) # #(tiles, 1)+ (tiles, 1) * (tiles, 1)
+    E22_p = E22_min + (weightsDMO[:,None]) * (E22-E22_min) 
+    E33_p = E33_min + (weightsDMO[:,None]) * (E33-E33_min)
+    G12_p = G12_min + (weightsDMO[:,None]) * (G12-G12_min)
+    G13_p = G13_min + (weightsDMO[:,None]) * (G13-G13_min)
+    G23_p = G23_min + (weightsDMO[:,None]) * (G23-G23_min)
+    V12_p = V12_min + (weightsDMO[:,None]) * (V12-V12_min)
+    V13_p = V13_min + (weightsDMO[:,None]) * (V13-V13_min)
+    V23_p = V23_min + (weightsDMO[:,None]) * (V23-V23_min)
+    V21_p = V21_min + (weightsDMO[:,None]) * (V21-V21_min)
+    V31_p = V31_min + (weightsDMO[:,None]) * (V31-V31_min)
+    V32_p = V32_min + (weightsDMO[:,None]) * (V32-V32_min)
+    EVGs_p= np.concatenate([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p],axis=-1) #(tiles, 12)
+    return compose_stiffness_matrix(EVGs_p,EVGs_p.shape[0])
+
+
+def compose_stiffness_matrix(EVGs:np.ndarray,tiles=1):
     # 构建6x6柔度矩阵S（正交各向异性材料）
-    S = np.zeros((6, 6), dtype=np.float64)
+    S = np.zeros((tiles,6, 6), dtype=np.float64)
+    E11=EVGs[...,0] #(tiles, )
+    E22=EVGs[...,1]
+    E33=EVGs[...,2]
+    V12=EVGs[...,3]
+    V13=EVGs[...,4]
+    V23=EVGs[...,5]
+    V21=EVGs[...,6]
+    V31=EVGs[...,7]
+    V32=EVGs[...,8]
+    G12=EVGs[...,9]
+    G13=EVGs[...,10]
+    G23=EVGs[...,11]
     # 正应力-正应变关系（前3x3块）
-    S=S.at[0, 0].set( 1 / E11_p)          # S11
-    S=S.at[0, 1].set( -V12_p / E11_p)       # S12
-    S=S.at[0, 2].set( -V13_p / E11_p )      # S13
-    S=S.at[1, 0].set( -V21_p / E22_p )      # S21（应与S12对称）
-    S=S.at[1, 1].set( 1 / E22_p )         # S22
-    S=S.at[1, 2].set( -V23_p / E22_p)       # S23
-    S=S.at[2, 0].set( -V31_p / E33_p )      # S31（应与S13对称）
-    S=S.at[2, 1].set( -V32_p / E33_p  )     # S32（应与S23对称）
-    S=S.at[2, 2].set( 1 / E33_p )         # S33
+    S=S.at[...,0, 0].set( 1 / E11)          # S11
+    S=S.at[...,0, 1].set( -V12 / E11)       # S12
+    S=S.at[...,0, 2].set( -V13 / E11 )      # S13
+    S=S.at[...,1, 0].set( -V21 / E22 )      # S21（应与S12对称）
+    S=S.at[...,1, 1].set( 1 / E22 )         # S22
+    S=S.at[...,1, 2].set( -V23 / E22)       # S23
+    S=S.at[...,2, 0].set( -V31 / E33 )      # S31（应与S13对称）
+    S=S.at[...,2, 1].set( -V32 / E33  )     # S32（应与S23对称）
+    S=S.at[...,2, 2].set( 1 / E33 )         # S33
     # 剪切应力-剪切应变关系（对角项）
-    S=S.at[3, 3].set( 1 / G23_p ) # S44（对应2-3方向剪切）
-    S=S.at[4, 4].set( 1 / G13_p ) # S55（对应1-3方向剪切）
-    S=S.at[5, 5].set( 1 / G12_p ) # S66（对应1-2方向剪切）
+    S=S.at[...,3, 3].set( 1 / G23 ) # S44（对应2-3方向剪切）
+    S=S.at[...,4, 4].set( 1 / G13 ) # S55（对应1-3方向剪切）
+    S=S.at[...,5, 5].set( 1 / G12 ) # S66（对应1-2方向剪切）
     
     # 强制柔度矩阵对称（消除输入误差）
-    S = (S + S.T) / 2
+    ST = np.transpose(S,[0,2,1])
+    S = (S + ST) / 2
     
     # 刚度矩阵 = 柔度矩阵的逆 ,如果奇异的话没有逆就会出问题
-    stiffness_matrix = np.linalg.inv(S)
+    stiffness_matrix = jax.vmap(lambda s:np.linalg.inv(s),)(S)
     
     return stiffness_matrix
 
 
+@jax.jit
+def heaviside(x: np.ndarray, beta: float = 10.0) -> np.ndarray:
+    """
+    简化的Heaviside投影函数。
+    
+    参数:
+        x: 输入数组
+        beta: 投影锐度参数
+    返回:
+        投影后的数组
+    """
+    return np.tanh(beta * 0.5) + np.tanh(beta * (x - 0.5)) / (
+        np.tanh(beta * 0.5) + np.tanh(beta * 0.5))
+
+
+@jax.jit
+def smooth_heaviside(x,beta=10.):
+    """
+    greater the beta, sharper the curve.
+    """
+    return 1/1+np.exp(-beta*x)
