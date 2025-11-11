@@ -100,10 +100,10 @@ class STPtile(Tile):
     """实例化以后调用实例方法即可，减少内存开支
 
     """
-    def __init__(self, stp_file_path,):
+    def __init__(self, stp_file_path,bbox=None):
         try:
             self.shape = read_step_file(stp_file_path)
-            self.bbox = get_bounding_box(self.shape)
+            self.bbox = get_bounding_box(self.shape) if bbox is None else bbox
             print(f"成功读取STP文件: {stp_file_path}")
         except Exception as e:
             print(f"读取STP文件失败: {e},{stp_file_path}")
