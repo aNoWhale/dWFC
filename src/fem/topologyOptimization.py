@@ -266,7 +266,7 @@ def output_sol(params, obj_val,sol_list):
     sol = sol_list[0]
     vtu_path = os.path.join(data_path, f'vtk/sol_{output_sol.counter:03d}.vtu')
     cell_infos = [(f'theta{i}', params[:, i]) for i in range(params.shape[-1])]
-    mask = params > 0.5
+    mask = np.max(params, axis=-1) > 0.5
     all = np.where(mask, np.argmax(params,axis=-1), np.nan)
     cell_infos.append( ('all', all) )
     # mises = problem.compute_von_mises(sol)
@@ -316,8 +316,8 @@ def material_selection_loss(rho, alpha=5.0):
 
 
 
-vt=0.7
-vf0 = 0.3
+vt=0.6
+vf0 = 0.2
 vf1 = 0.2
 vf2 = 0.2
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
@@ -362,7 +362,7 @@ optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sens
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.35
 rho_ini = rho_ini.at[:,1].set(0.25)
-rho_ini = rho_ini.at[:,2].set(0.25)
+rho_ini = rho_ini.at[:,2].set(0.20)
 
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
