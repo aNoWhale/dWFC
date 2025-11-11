@@ -119,13 +119,14 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
     probs=init_probs
 
     should_stop = False
-    visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=0)
+    if plot:
+        visualizer_2D(tileHandler=tileHandler,probs=probs, points=kwargs.get('points'), figureManager=figureManger,epoch=0)
     pbar = tqdm.tqdm(total=num_elements, desc="collpasing", unit="tiles")
     while should_stop is False:
         # 选择要坍缩的单元（最小熵单元）
         key, subkey = jax.random.split(key)
         collapse_idx,max_entropy = select_collapse(subkey, probs, tau=1e-3)
-        print(f"max entorpy: {max_entropy}")
+        # print(f"max entorpy: {max_entropy}")
         pbar.update(1)
         if max_entropy<0.2:
             should_stop=True
@@ -140,8 +141,8 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
 
         neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs) #邻居所在的方向
-        print(f"collapse_idx: {collapse_idx}", )
-        print(f"neighbors: {neighbors}")
+        # print(f"collapse_idx: {collapse_idx}", )
+        # print(f"neighbors: {neighbors}")
         # 更新邻居的概率场
         probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
         if plot is not False:
@@ -152,7 +153,7 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
                 pass
         if pbar.n > pbar.total:
             pbar.set_description_str("trying fix conflicts")
-        print(f"probs: \n{probs}",)
+        # print(f"probs: \n{probs}",)
         print("epoch end\n")
         # 然后再计算香农熵选择下一个
     pbar.close()
