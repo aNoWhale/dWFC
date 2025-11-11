@@ -397,6 +397,6 @@ import jax_fem.mma_ori as mo
 rho_oped = np.load("data/见到最好的BCCcubic/npy/rho_oped.npy")
 import src.WFC.iterateWaveFunctionCollapse_map as normalWFC
 wfc_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler,max_neighbors=8))
-np.save("data/npy/wfc_end",wfc_end)
+np.save("data/见到最好的BCCcubic/npy/wfc_end",wfc_end)
 
 
