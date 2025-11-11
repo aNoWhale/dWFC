@@ -198,21 +198,20 @@ dirichlet_bc_info = [[fixed_location]*3, [0, 1, 2], [dirichlet_val]*3]
 
 location_fns = [load_location]
 
-# tileHandler = TileHandler(typeList=['BCC3', 'cubic1'], 
-#                           direction=(('back',"front"),("left","right"),("top","bottom")),
-#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-# tileHandler.selfConnectable(typeName=['BCC3', 'cubic1'],value=1)
-# tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
-
-# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
-
-
-tileHandler = TileHandler(typeList=['BCC3', 'cubic1', '++'], 
+tileHandler = TileHandler(typeList=['BCC3', 'cubic1'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.selfConnectable(typeName=['++','BCC3', 'cubic1'],value=1)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3',],direction="isotropy",value=1,dual=True)
+tileHandler.selfConnectable(typeName=['BCC3', 'cubic1'],value=1)
 tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
+
+
+
+# tileHandler = TileHandler(typeList=['BCC3', 'cubic1', '++'], 
+#                           direction=(('back',"front"),("left","right"),("top","bottom")),
+#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+# tileHandler.selfConnectable(typeName=['++','BCC3', 'cubic1'],value=1)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
 
@@ -316,12 +315,12 @@ def material_selection_loss(rho, alpha=5.0):
 
 
 
-vt=0.6
+vt=0.35
 vf0 = 0.2
 vf1 = 0.2
-vf2 = 0.2
+# vf2 = 0.2
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
-numConstraints = 5
+numConstraints = 4
 def consHandle(rho,*args):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
@@ -336,13 +335,13 @@ def consHandle(rho,*args):
     cm , gradcm = jax.value_and_grad(material_selection_loss)(rho)
     c0, gradc0 = jax.value_and_grad(lambda rho: (np.mean(rho[...,0])/vf0)-1 )(rho)
     c1, gradc1 = jax.value_and_grad(lambda rho: (np.mean(rho[...,1])/vf1)-1 )(rho)
-    c2, gradc2 = jax.value_and_grad(lambda rho: (np.mean(rho[...,2])/vf2)-1 )(rho)
+    # c2, gradc2 = jax.value_and_grad(lambda rho: (np.mean(rho[...,2])/vf2)-1 )(rho)
     # c0, gradc0 = jax.value_and_grad(computeGlobalVolumeConstraint)(rho)
     # c=np.array([ ct,c0,c1 ])
     # gradc=np.array([ gradct,gradc0,gradc1])
 
-    c=np.array([ct, cm, c0, c1, c2 ])
-    gradc=np.array([gradct, gradcm, gradc0, gradc1, gradc2 ])
+    c=np.array([ct, cm, c0, c1 ])
+    gradc=np.array([gradct, gradcm, gradc0, gradc1 ])
     # print(f"c.shape:{c.shape}")
     # print(f"gradc.shape:{gradc.shape}")
     c = c.reshape((-1,))
@@ -357,42 +356,47 @@ A, D = preprocess_adjacency(adj, tileHandler)
 wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
+optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
 
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.35
 rho_ini = rho_ini.at[:,1].set(0.25)
-rho_ini = rho_ini.at[:,2].set(0.20)
+# rho_ini = rho_ini.at[:,2].set(0.20)
 
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
 import jax_fem.mma_ori as mo
-rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
-# rho_oped,J_list = mo.optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,)
-create_directory_if_not_exists("data/npy")
-np.save("data/npy/rho_oped",rho_oped)
+# rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
+# # rho_oped,J_list = mo.optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,)
+# create_directory_if_not_exists("data/npy")
+# np.save("data/npy/rho_oped",rho_oped)
 
 
-# Plot the optimization results.
-obj = onp.array(outputs)
-create_directory_if_not_exists("data/csv")
-onp.savetxt( "data/csv/topo_obj.csv", onp.array(obj), delimiter="," )
+# # Plot the optimization results.
+# obj = onp.array(outputs)
+# create_directory_if_not_exists("data/csv")
+# onp.savetxt( "data/csv/topo_obj.csv", onp.array(obj), delimiter="," )
 
 
-fig=plt.figure(figsize=(12, 5))
-ax=fig.add_subplot(1,2,1)
-ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
-# ax.xlabel(r"Optimization step", fontsize=20)
-# ax.ylabel(r"Objective value", fontsize=20)
-# ax.tick_params(labelsize=20)
-# ax.tick_params(labelsize=20)
+# fig=plt.figure(figsize=(12, 5))
+# ax=fig.add_subplot(1,2,1)
+# ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
+# # ax.xlabel(r"Optimization step", fontsize=20)
+# # ax.ylabel(r"Objective value", fontsize=20)
+# # ax.tick_params(labelsize=20)
+# # ax.tick_params(labelsize=20)
 
-ax=fig.add_subplot(1,2,2)
+# ax=fig.add_subplot(1,2,2)
 
-plt.savefig("data/topo_obj.tiff")
-plt.show()
-import src.WFC.waveFunctionCollapse as normalWFC
-wfc_end = normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler)
+# plt.savefig("data/topo_obj.tiff")
+# plt.show()
+
+
+
+# rho_oped = np.load("../../data/见到最好的BCCcubic/npy/rho_oped.npy")
+rho_oped = np.load("data/见到最好的BCCcubic/npy/rho_oped.npy")
+import src.WFC.iterateWaveFunctionCollapse_map as normalWFC
+wfc_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler,max_neighbors=8))
 np.save("data/npy/wfc_end",wfc_end)
 
 

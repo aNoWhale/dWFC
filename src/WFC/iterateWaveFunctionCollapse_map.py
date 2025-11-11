@@ -315,8 +315,21 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler,plot:bool|
         #邻居可能形状不整齐
         
         def align_array(input_list, m, fill_value=-1):
-            result = jnp.array([jnp.pad(jnp.array(sub), (0, m - len(sub)), mode='constant', constant_values=-1) for sub in input_list])
+            # result = jnp.array([jnp.pad(jnp.array(sub), (0, m - len(sub)), mode='constant', constant_values=-1) for sub in input_list])
+            processed_list = []
+            for sub in input_list:
+                sub_array = jnp.array(sub)
+                pad_length = max(0, m - len(sub))
+                padded_sub = jnp.pad(
+                    sub_array,
+                    pad_width=(0, pad_length),  # 前面填充0个，后面填充计算出的长度
+                    mode='constant',
+                    constant_values=-1
+                )
+                processed_list.append(padded_sub)
+            result = jnp.array(processed_list)
             return result
+
         
         n=len(collapse_idx_list)
         collapse_array = jnp.array(collapse_idx_list)
