@@ -359,7 +359,7 @@ wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array
 optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
 
 key = jax.random.PRNGKey(0)
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.35
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.25
 rho_ini = rho_ini.at[:,1].set(0.25)
 # rho_ini = rho_ini.at[:,2].set(0.20)
 
