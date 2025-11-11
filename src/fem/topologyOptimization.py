@@ -244,7 +244,7 @@ def output_sol(params, obj_val,sol_list):
     sol = sol_list[0]
     vtu_path = os.path.join(data_path, f'vtk/sol_{output_sol.counter:03d}.vtu')
     cell_infos = [(f'theta{i}', params[:, i]) for i in range(params.shape[-1])]
-    cell_infos.append( ('all', np.argmax(params,axis=-1)) )
+    cell_infos.append( ('all', params[:,np.argmax(params,axis=-1))] )
     # mises = problem.compute_von_mises(sol)
     # cell_infos.extend([(f'{key}', item ) for key,item in mises.items()])
     # cell_infos.append(('cell_von_mises', mises["cell_von_mises"] ))
