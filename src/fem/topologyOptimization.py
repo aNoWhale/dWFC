@@ -211,9 +211,9 @@ tileHandler = TileHandler(typeList=['BCC3', 'cubic1', '++'],
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
 tileHandler.selfConnectable(typeName=['++','BCC3', 'cubic1'],value=1)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3','cubic1'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3',],direction="isotropy",value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
 
 
@@ -391,3 +391,8 @@ ax=fig.add_subplot(1,2,2)
 
 plt.savefig("data/topo_obj.tiff")
 plt.show()
+import src.WFC.waveFunctionCollapse as normalWFC
+wfc_end = normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler)
+np.save("data/npy/wfc_end",wfc_end)
+
+

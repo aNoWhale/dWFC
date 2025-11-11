@@ -113,4 +113,5 @@ if __name__ == "__main__":
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
     rho=np.load("data/见到最好的BCCcubic/npy/rho_oped.npy").reshape(-1,tileHandler.typeNum)
+
     export_cell_structures(mesh,rho,tileHandler,"best.stp")
