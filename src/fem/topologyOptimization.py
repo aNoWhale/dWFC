@@ -213,7 +213,7 @@ tileHandler.selfConnectable(typeName=['++','BCC3', 'cubic1'],value=1)
 tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3',],direction="isotropy",value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
+
 
 
 # tileHandler = TileHandler(typeList=['++', 'TTx0', 'TTx180'], 
@@ -265,7 +265,7 @@ def output_sol(params, obj_val,sol_list):
     sol = sol_list[0]
     vtu_path = os.path.join(data_path, f'vtk/sol_{output_sol.counter:03d}.vtu')
     cell_infos = [(f'theta{i}', params[:, i]) for i in range(params.shape[-1])]
-    mask = np.max(params, axis=-1) > 0.5
+    mask = np.max(params, axis=-1) > 0.4
     all = np.where(mask, np.argmax(params,axis=-1), np.nan)
     cell_infos.append( ('all', all) )
     # mises = problem.compute_von_mises(sol)
