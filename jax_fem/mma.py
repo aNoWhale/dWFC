@@ -592,7 +592,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             rho,_,_=WFC(rho.reshape(-1,tileNum))
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             rho = jax.nn.softmax(rho,axis=-1)
-            # rho = heaviside(rho,2^(loop//5))
+            rho = heaviside(rho,2^(loop//5))
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):
@@ -737,7 +737,7 @@ def compute_material_grayness(rho_f: jnp.ndarray,
     return float(grayness), float(clear_ratio), element_grayness
 
 @jit
-def heaviside(x: jnp.ndarray, beta: float = 10.0) -> jnp.ndarray:
+def heaviside(x: jnp.ndarray,eta=0.5, beta: float = 10.0) -> jnp.ndarray:
     """
     简化的Heaviside投影函数。
     
@@ -747,7 +747,7 @@ def heaviside(x: jnp.ndarray, beta: float = 10.0) -> jnp.ndarray:
     返回:
         投影后的数组
     """
-    return jnp.tanh(beta * 0.5) + jnp.tanh(beta * (x - 0.5)) / (
-        jnp.tanh(beta * 0.5) + jnp.tanh(beta * 0.5))
+    return jnp.tanh(beta * eta) + jnp.tanh(beta * (x - eta)) / (
+        jnp.tanh(beta * eta) + jnp.tanh(beta * eta))
 
 
