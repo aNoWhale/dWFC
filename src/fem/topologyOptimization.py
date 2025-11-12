@@ -315,10 +315,10 @@ def material_selection_loss(rho, alpha=5.0):
 
 
 
-vt=0.6
+vt=0.5
 vf0 = 0.2
 vf1 = 0.2
-vf2 = 0.2
+vf2 = 0.15
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
 numConstraints = 5
 def consHandle(rho,*args):
@@ -359,9 +359,9 @@ wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array
 optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
 
 key = jax.random.PRNGKey(0)
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.25
-rho_ini = rho_ini.at[:,1].set(0.25)
-# rho_ini = rho_ini.at[:,2].set(0.20)
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.15
+rho_ini = rho_ini.at[:,1].set(0.15)
+rho_ini = rho_ini.at[:,2].set(0.10)
 
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
