@@ -147,22 +147,22 @@ def waveFunctionCollapse(init_probs, adj_csr, tileHandler: TileHandler, plot: bo
             print(f"####reached stop condition####\n")
             should_stop = True
             break
-        if solid_mask[collapse_idx]:
 
-            # 获取邻居和方向信息
-            neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
-            neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs)
-            neighbors_dirs_opposite_index = tileHandler.opposite_dir_array[jnp.array(neighbors_dirs_index)]
-            
-            # 对齐邻居数组
-            def align_single_array(arr, m, fill_value=-1):
-                arr = jnp.array(arr)
-                pad_length = max(0, m - len(arr))
-                return jnp.pad(arr, (0, pad_length), mode='constant', constant_values=fill_value)
-            
-            neighbors_aligned = align_single_array(neighbors, max_neighbors)
-            dirs_index_aligned = align_single_array(neighbors_dirs_index, max_neighbors)
-            dirs_opposite_aligned = align_single_array(neighbors_dirs_opposite_index, max_neighbors)
+        # 获取邻居和方向信息
+        neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
+        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs)
+        neighbors_dirs_opposite_index = tileHandler.opposite_dir_array[jnp.array(neighbors_dirs_index)]
+        
+        # 对齐邻居数组
+        def align_single_array(arr, m, fill_value=-1):
+            arr = jnp.array(arr)
+            pad_length = max(0, m - len(arr))
+            return jnp.pad(arr, (0, pad_length), mode='constant', constant_values=fill_value)
+        
+        neighbors_aligned = align_single_array(neighbors, max_neighbors)
+        dirs_index_aligned = align_single_array(neighbors_dirs_index, max_neighbors)
+        dirs_opposite_aligned = align_single_array(neighbors_dirs_opposite_index, max_neighbors)
+        if solid_mask[collapse_idx]:
 
             # 更新坍缩单元概率
             p_updated = update_by_neighbors_align(
