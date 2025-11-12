@@ -132,8 +132,10 @@ def waveFunctionCollapse(init_probs, adj_csr, tileHandler: TileHandler, plot: bo
     while not should_stop:
         key, subkey1, subkey2 = jax.random.split(key, 3)
         
-        # 概率归一化
+        
         solid_mask = np.sum(probs,axis=-1) > 0.4
+
+        # 概率归一化
         norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
         probs = probs / jnp.where(norm == 0, 1.0, norm)
         
