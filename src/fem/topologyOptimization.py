@@ -366,7 +366,7 @@ rho_ini = rho_ini.at[:,2].set(0.10)
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
 import jax_fem.mma_ori as mo
-rho_oped,J_list=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
+rho_oped,infos=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
 # rho_oped,J_list = mo.optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,)
 create_directory_if_not_exists("data/npy")
 np.save("data/npy/rho_oped",rho_oped)
@@ -381,12 +381,15 @@ onp.savetxt( "data/csv/topo_obj.csv", onp.array(obj), delimiter="," )
 fig=plt.figure(figsize=(12, 5))
 ax=fig.add_subplot(1,2,1)
 ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
+clear_ratio = []
+for index, (epoch, results) in enumerate(infos.items()):
+    clear_ratio.append(results["clear_ratio"])
+ax=fig.add_subplot(1,2,2)
+ax.plot(onp.arange(len(clear_ratio)) + 1, onp.array(clear_ratio), linestyle='-', linewidth=2, color='black')
 # ax.xlabel(r"Optimization step", fontsize=20)
 # ax.ylabel(r"Objective value", fontsize=20)
 # ax.tick_params(labelsize=20)
 # ax.tick_params(labelsize=20)
-
-ax=fig.add_subplot(1,2,2)
 
 plt.savefig("data/topo_obj.tiff")
 plt.show()

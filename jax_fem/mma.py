@@ -544,7 +544,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     J_prev = np.inf
     rho_prev = rho_ini.copy()
     rho = rho_ini
-    J_list=[]
+    infos={}
     con_violation_last = 0
     rfmean_last=0
     rfmin_last=0
@@ -576,6 +576,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     while loop < optimizationParams['maxIters']:
         start_time=time.time()
         loop = loop + 1
+        info={}
         np.save(f"data/npy/{loop}",rho)
         # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
         alpha = 1
@@ -648,7 +649,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
 
         J, dJ, vc, dvc = np.array(J), np.array(dJ), np.array(vc), np.array(dvc)
-        J_list.append(J)
+        infos.append(J)
         # jplotter.update(loop, J)
 
         start = time.time()
@@ -672,7 +673,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         
         #灰度监控
         grayness, clear_ratio, _ = compute_material_grayness(rho_f)
-
+        info.update({"grayness":grayness,"clear_ratio":clear_ratio,"con_violation":con_violation,"J":J})
         # 梯度范数
         print("****************************************************")
         print(f"{optimizationParams}")
@@ -704,10 +705,10 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         J_prev = J
         rho_prev = rho.copy()
         con_violation_last = con_violation
-        
+        infos[loop]=info
     jplotter.finalize()
     print(f"Total optimization time: {time.strftime('%H:%M:%S', time.gmtime(time.time()-allstart))} [s]")
-    return rho,J_list
+    return rho,infos
 
 
 def compute_material_grayness(rho_f: jnp.ndarray, 
