@@ -634,8 +634,8 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         dJ=dJ_drho
         dvc=dvc_drho
         if sensitivity_filtering:
-            # dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
-            dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
+            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
+            # dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
 
         print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
 
@@ -649,7 +649,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         J, dJ, vc, dvc = np.array(J), np.array(dJ), np.array(vc), np.array(dvc)
         J_list.append(J)
-        jplotter.update(loop, J)
+        # jplotter.update(loop, J)
 
         start = time.time()
 
