@@ -86,9 +86,10 @@ def transform_shape_to_bounding_box(shape: TopoDS_Shape, target_bbox: tuple ,sha
     
     # 应用变换
     transformed_shape = TopoDS_Shape(shape)
+    transformed_shape.Checked(True)
     loc = TopLoc_Location(trsf) 
     transformed_shape.Move(loc)
-    
+    transformed_shape.Checked(True)
     return transformed_shape
 
 
