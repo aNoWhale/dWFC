@@ -351,55 +351,55 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 from src.WFC.WFCFilter_JAX_log_monotonicity import preprocess_adjacency,waveFunctionCollapse
 
 
-# 预构建邻接矩阵和方向矩阵（仅一次）
-A, D = preprocess_adjacency(adj, tileHandler)
-wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
+# # 预构建邻接矩阵和方向矩阵（仅一次）
+# A, D = preprocess_adjacency(adj, tileHandler)
+# wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
-# Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
+# # Finalize the details of the MMA optimizer, and solve the TO problem.
+# optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':True}
 
-key = jax.random.PRNGKey(0)
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.15
-rho_ini = rho_ini.at[:,1].set(0.15)
-rho_ini = rho_ini.at[:,2].set(0.10)
+# key = jax.random.PRNGKey(0)
+# rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.15
+# rho_ini = rho_ini.at[:,1].set(0.15)
+# rho_ini = rho_ini.at[:,2].set(0.10)
 
-# rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
+# # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
-import jax_fem.mma_ori as mo
-rho_oped,infos=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
-# rho_oped,J_list = mo.optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,)
-create_directory_if_not_exists("data/npy")
-np.save("data/npy/rho_oped",rho_oped)
-
-
-# Plot the optimization results.
-obj = onp.array(outputs)
-create_directory_if_not_exists("data/csv")
-onp.savetxt( "data/csv/topo_obj.csv", onp.array(obj), delimiter="," )
+# import jax_fem.mma_ori as mo
+# rho_oped,infos=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
+# # rho_oped,J_list = mo.optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,)
+# create_directory_if_not_exists("data/npy")
+# np.save("data/npy/rho_oped",rho_oped)
 
 
-fig=plt.figure(figsize=(12, 5))
-ax=fig.add_subplot(1,2,1)
-ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
-clear_ratio = []
-for index, (epoch, results) in enumerate(infos.items()):
-    clear_ratio.append(results["clear_ratio"])
-ax=fig.add_subplot(1,2,2)
-ax.plot(onp.arange(len(clear_ratio)) + 1, onp.array(clear_ratio), linestyle='-', linewidth=2, color='black')
-# ax.xlabel(r"Optimization step", fontsize=20)
-# ax.ylabel(r"Objective value", fontsize=20)
-# ax.tick_params(labelsize=20)
-# ax.tick_params(labelsize=20)
-
-plt.savefig("data/topo_obj.tiff")
-plt.show()
+# # Plot the optimization results.
+# obj = onp.array(outputs)
+# create_directory_if_not_exists("data/csv")
+# onp.savetxt( "data/csv/topo_obj.csv", onp.array(obj), delimiter="," )
 
 
+# fig=plt.figure(figsize=(12, 5))
+# ax=fig.add_subplot(1,2,1)
+# ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
+# clear_ratio = []
+# for index, (epoch, results) in enumerate(infos.items()):
+#     clear_ratio.append(results["clear_ratio"])
+# ax=fig.add_subplot(1,2,2)
+# ax.plot(onp.arange(len(clear_ratio)) + 1, onp.array(clear_ratio), linestyle='-', linewidth=2, color='black')
+# # ax.xlabel(r"Optimization step", fontsize=20)
+# # ax.ylabel(r"Objective value", fontsize=20)
+# # ax.tick_params(labelsize=20)
+# # ax.tick_params(labelsize=20)
 
-# rho_oped = np.load("../../data/见到最好的BCCcubic/npy/rho_oped.npy")
-rho_oped = np.load("data/npy/rho_oped.npy")
-import src.WFC.iterateWaveFunctionCollapse_map_cpu as normalWFC
-wfc_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler,max_neighbors=8))
-np.save("data/npy/wfc_end.npy",wfc_end)
+# plt.savefig("data/topo_obj.tiff")
+# plt.show()
+
+
+
+rho_oped = np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk更清晰++TT0TT180/npy/rho_oped.npy")
+# rho_oped = np.load("data/npy/rho_oped.npy")
+import src.WFC.classicalWFC as normalWFC
+wfc_classical_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler))
+np.save("data/npy/wfc_classical_end.npy",wfc_classical_end)
 
 

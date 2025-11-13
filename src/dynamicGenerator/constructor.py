@@ -126,6 +126,9 @@ if __name__ == "__main__":
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
     # rho=np.load("data/npy/wfc_end.npy").reshape(-1,tileHandler.typeNum)
-    rho=np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180/npy/rho_oped.npy").reshape(-1,tileHandler.typeNum)
+    toConstuct=np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk更清晰++TT0TT180/npy/wfc_classical_end.npy").reshape(-1,tileHandler.typeNum)
 
-    export_cell_structures(mesh,rho,tileHandler,"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180/rho_oped.stp")
+    # import src.WFC.classicalWFC as normalWFC
+    # wfc_classical_end ,max_entropy, collapse_list= normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler)
+    # np.save("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk更清晰++TT0TT180/npy/wfc_classical_end.npy",wfc_classical_end)
+    export_cell_structures(mesh,toConstuct,tileHandler,"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk更清晰++TT0TT180/wfc_classical_end.stp")
