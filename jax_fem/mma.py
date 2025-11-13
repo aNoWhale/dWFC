@@ -649,7 +649,6 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
 
         J, dJ, vc, dvc = np.array(J), np.array(dJ), np.array(vc), np.array(dvc)
-        infos.append(J)
         # jplotter.update(loop, J)
 
         start = time.time()
