@@ -20,7 +20,7 @@ from OCC.Core.IFSelect import IFSelect_RetDone
 import numpy as np
 import tqdm
 
-def export_cell_structures(mesh:Mesh, rho:np.ndarray ,tileHandle:TileHandler, output_filename):
+def export_cell_structures(mesh:Mesh, rho:np.ndarray ,tileHandle:TileHandler, output_filename,sum_threshold=0.4):
     """
     导出每个单元为独立结构到STEP文件
     
@@ -34,12 +34,13 @@ def export_cell_structures(mesh:Mesh, rho:np.ndarray ,tileHandle:TileHandler, ou
     points = mesh.points
     cells = mesh.cells
     rho_sum = np.sum(rho, axis=-1)
-    mask = rho_sum > 0.4
+    mask = rho_sum > sum_threshold
     cell_type_ids:np.ndarray=np.argmax(rho,axis=-1,keepdims=False).tolist()
     cell_type_ids = np.where(mask, cell_type_ids, -1)
     # 创建STEP写入器
     step_writer = STEPControl_Writer()
     Interface_Static.SetCVal("write.step.schema", "AP203")
+    Interface_Static.SetIVal("write.step.verbose", 0)
     # 遍历所有单元
     # for i, (cell_indices, type_id) in enumerate(zip(cells, cell_type_ids)):
     for i, (cell_indices, type_id) in enumerate(tqdm.tqdm(zip(cells, cell_type_ids), total=len(cells), desc="constructing",mininterval=1.0,)):
@@ -53,7 +54,7 @@ def export_cell_structures(mesh:Mesh, rho:np.ndarray ,tileHandle:TileHandler, ou
             # 获取构造方法并创建几何结构
             constructor = tileHandle.typeMethod[type_name].build
             shape = constructor(cell_points.tolist())
-            
+            shape.Checked(True)
             # 将结构添加到STEP文件（作为独立实体）
             step_writer.Transfer(shape, STEPControl_AsIs)
     
@@ -126,9 +127,9 @@ if __name__ == "__main__":
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
     # rho=np.load("data/npy/wfc_end.npy").reshape(-1,tileHandler.typeNum)
-    toConstuct=np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk更清晰++TT0TT180/npy/wfc_classical_end.npy").reshape(-1,tileHandler.typeNum)
+    toConstuct=np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180完全约束有filter/npy/wfc_classical_end.npy").reshape(-1,tileHandler.typeNum)
 
     # import src.WFC.classicalWFC as normalWFC
     # wfc_classical_end ,max_entropy, collapse_list= normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler)
     # np.save("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk更清晰++TT0TT180/npy/wfc_classical_end.npy",wfc_classical_end)
-    export_cell_structures(mesh,toConstuct,tileHandler,"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk更清晰++TT0TT180/wfc_classical_end.stp")
+    export_cell_structures(mesh,toConstuct,tileHandler,"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180完全约束有filter/wfc_classical_end.stp")

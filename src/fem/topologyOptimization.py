@@ -407,6 +407,6 @@ plt.show()
 rho_oped = np.load("data/npy/rho_oped.npy")
 import src.WFC.classicalWFC as normalWFC
 wfc_classical_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler))
-np.save("data/npy/wfc_classical_end.npy",wfc_classical_end)
+np.save("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk形状更好的++TT0TT180/npy/wfc_classical_end.npy",wfc_classical_end)
 
 
