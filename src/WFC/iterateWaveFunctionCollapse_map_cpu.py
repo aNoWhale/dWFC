@@ -6,7 +6,7 @@ sys.path.append(project_root)
 
 import jax
 jax.config.update('jax_platform_name', 'cpu')  # 强制使用CPU
-jax.config.update('jax_disable_jit', True)     # 禁用JIT避免追踪问题
+# jax.config.update('jax_disable_jit', True)     # 禁用JIT避免追踪问题
 
 import jax.numpy as jnp
 from functools import partial

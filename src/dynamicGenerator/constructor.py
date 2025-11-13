@@ -90,11 +90,24 @@ if __name__ == "__main__":
     # (x_min, y_min, z_min, x_max, y_max, z_max,
     #         center_x, center_y, center_z,
     #         size_x, size_y, size_z)
-    Cubic=STPtile("data/stp/cubic.stp",(-0.01,-0.01,-0.01,0.01,0.01,0.01,0.,0.,0.,0.02,0.02,0.02))
-    BCC=STPtile("data/stp/BCC.stp",(-0.02,-0.02,-0.02,0.02,0.02,0.02,0.,0.,0.,0.04,0.04,0.04))
-
-    tileHandler = TileHandler(typeList=['BCC','cubic'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-    tileHandler.register(['BCC','cubic'],[BCC,Cubic])
+    # Cubic=STPtile("data/stp/cubic.stp",(-0.01,-0.01,-0.01,0.01,0.01,0.01,0.,0.,0.,0.02,0.02,0.02))
+    # BCC=STPtile("data/stp/BCC.stp",(-0.02,-0.02,-0.02,0.02,0.02,0.02,0.,0.,0.,0.04,0.04,0.04))
+    # tileHandler = TileHandler(typeList=['BCC','cubic'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    # tileHandler.register(['BCC','cubic'],[BCC,Cubic])
+    pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
+                                  0.01,0.02,0.01,
+                                  0.,0.01,0.,
+                                  0.02,0.02,0.02))
+    TTx0=STPtile("data/stp/TTx0.stp",(-0.01,0.,-0.01,
+                                      0.01,0.02,0.01,
+                                      0.,0.01,0.,
+                                      0.02,0.02,0.02))
+    TTx180=STPtile("data/stp/TTx180.stp",(-0.01,0.,-0.01,
+                                          0.01,0.02,0.01,
+                                          0.,0.01,0.,
+                                          0.02,0.02,0.02))
+    tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
     from jax_fem.generate_mesh import get_meshio_cell_type,box_mesh_gmsh
     import meshio
     ele_type = 'HEX8'
@@ -112,6 +125,7 @@ if __name__ == "__main__":
     else:
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
-    rho=np.load("data/npy/wfc_end.npy").reshape(-1,tileHandler.typeNum)
+    # rho=np.load("data/npy/wfc_end.npy").reshape(-1,tileHandler.typeNum)
+    rho=np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180/npy/rho_oped.npy").reshape(-1,tileHandler.typeNum)
 
-    export_cell_structures(mesh,rho,tileHandler,"wfc.stp")
+    export_cell_structures(mesh,rho,tileHandler,"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180/rho_oped.stp")
