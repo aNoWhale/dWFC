@@ -237,7 +237,8 @@ print(tileHandler)
 tileHandler.constantlize_compatibility()
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
-sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", p=[5,4,4], debug=False) #3,4 445
+p=[5,4,4]
+sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", p=p, debug=False) #3,4 445 544 
 # sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", debug=False) #3,4
 
 print(sigmaInterpreter)
@@ -363,7 +364,7 @@ A, D = preprocess_adjacency(adj, tileHandler)
 wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':False}
+optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"multi",'filter_radius':1.}
 
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.15
@@ -407,6 +408,18 @@ plt.show()
 rho_oped = np.load("data/npy/rho_oped.npy")
 import src.WFC.classicalWFC as normalWFC
 wfc_classical_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler))
-np.save("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk形状更好的++TT0TT180/npy/wfc_classical_end.npy",wfc_classical_end)
+np.save("data/npy/wfc_classical_end.npy",wfc_classical_end)
+lines = [f"vt:{vt}\n",
+         f"vf0:{vf0}\n",
+         f"vf1:{vf1}\n",
+         f"vf2:{vf2}\n",
+         f"tileHandler:{tileHandler}\n",
+         f"Lx,Ly,Lz:{Lx},{Ly},{Lz}\n",
+         f"Nx,Ny,Nz:{Nx},{Ny},{Nz}\n",
+         f"optimizationParams:{optimizationParams}\n",
+         ]
+
+with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
+    f.write(lines)  # 写入内容
 
 
