@@ -420,6 +420,6 @@ lines = [f"vt:{vt}\n",
          ]
 
 with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
-    f.write(lines)  # 写入内容
-
+    for line in lines:
+        f.write(line)  # 写入内容
 
