@@ -537,7 +537,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     tol_design = optimizationParams.get('tol_design', 1e-1)
     tol_con = optimizationParams.get('tol_con', 1e-1)
     min_iters = optimizationParams.get('min_iters', 10)
-    sensitivity_filtering = optimizationParams.get('sensitivity_filtering',True)
+    sensitivity_filtering = optimizationParams.get('sensitivity_filtering',"common")
 
 
     jplotter = Jplotter()
@@ -550,7 +550,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     rfmin_last=0
     rfmax_last=0
 
-    H, Hs = compute_filter_kd_tree(fe,r_factor = 1.8)
+    H, Hs = compute_filter_kd_tree(fe,r_factor = optimizationParams.get('filter_radius', 1.8)) #1.8
     ft = {'H':H, 'Hs':Hs}
 
     loop = 0
@@ -634,9 +634,12 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         dJ=dJ_drho
         dvc=dvc_drho
-        if sensitivity_filtering:
-            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc)
-            # dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
+        print(f"sensitivity filtering: {sensitivity_filtering}")
+        if sensitivity_filtering=="common":
+            dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc) #一直用的这个做++TT0TT180 完全约束f1 f1.5 p544 p444
+        if sensitivity_filtering=="multi":
+            dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
+        
 
         print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
 

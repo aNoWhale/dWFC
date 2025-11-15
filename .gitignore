@@ -15,4 +15,4 @@ data/img/**.jpg
 **.tiff
 **.npy
 cache
-
+**.txt

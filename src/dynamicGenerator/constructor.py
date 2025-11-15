@@ -19,6 +19,8 @@ from OCC.Core.IFSelect import IFSelect_RetDone
 
 import numpy as np
 import tqdm
+import pathlib
+from pathlib import Path
 
 def export_cell_structures(mesh:Mesh, rho:np.ndarray ,tileHandle:TileHandler, output_filename,sum_threshold=0.4):
     """
@@ -127,9 +129,9 @@ if __name__ == "__main__":
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
     # rho=np.load("data/npy/wfc_end.npy").reshape(-1,tileHandler.typeNum)
-    toConstuct=np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk又一个不错的BCCcubic++初始满足约束/npy/wfc_classical_end.npy").reshape(-1,tileHandler.typeNum)
+    toConstuct=np.load("/home/sck/metaOptimization/data/vtk++TT0TT180完全约束有filter/npy/wfc_classical_end.npy").reshape(-1,tileHandler.typeNum)
 
     # import src.WFC.classicalWFC as normalWFC
     # wfc_classical_end ,max_entropy, collapse_list= normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler)
     # np.save("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk更清晰++TT0TT180/npy/wfc_classical_end.npy",wfc_classical_end)
-    export_cell_structures(mesh,toConstuct,tileHandler,"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk又一个不错的BCCcubic++初始满足约束/wfc_classical_end.stp")
+    export_cell_structures(mesh,toConstuct,tileHandler,"/home/sck/metaOptimization/data/vtk++TT0TT180完全约束有filter/wfc_classical_end.stp")
