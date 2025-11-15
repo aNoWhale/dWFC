@@ -206,24 +206,24 @@ location_fns = [load_location]
 
 
 
-# tileHandler = TileHandler(typeList=['BCC3', 'cubic1', '++'], 
-#                           direction=(('back',"front"),("left","right"),("top","bottom")),
-#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-# tileHandler.selfConnectable(typeName=['++','BCC3', 'cubic1'],value=1)
-# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3',],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
-
-
-
-tileHandler = TileHandler(typeList=['++', 'TTx0', 'TTx180'], 
+tileHandler = TileHandler(typeList=['BCC3', 'cubic1', '++'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.selfConnectable(typeName=['++','TTx0', 'TTx180'],value=1)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
+tileHandler.selfConnectable(typeName=['++','BCC3', 'cubic1'],value=1)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
+
+
+
+# tileHandler = TileHandler(typeList=['++', 'TTx0', 'TTx180'], 
+#                           direction=(('back',"front"),("left","right"),("top","bottom")),
+#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+# tileHandler.selfConnectable(typeName=['++','TTx0', 'TTx180'],value=1)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
 
 
 print(tileHandler)
@@ -396,10 +396,10 @@ from src.WFC.WFCFilter_JAX_log_monotonicity import preprocess_adjacency,waveFunc
 
 
 
-rho_oped = np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk形状更好的++TT0TT180/npy/rho_oped.npy")
+rho_oped = np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk又一个不错的BCCcubic++初始满足约束/npy/rho_oped.npy")
 # rho_oped = np.load("data/npy/rho_oped.npy")
 import src.WFC.classicalWFC as normalWFC
 wfc_classical_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler))
-np.save("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk形状更好的++TT0TT180/npy/wfc_classical_end.npy",wfc_classical_end)
+np.save("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk又一个不错的BCCcubic++初始满足约束/npy/wfc_classical_end.npy",wfc_classical_end)
 
 
