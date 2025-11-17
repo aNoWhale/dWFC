@@ -164,5 +164,6 @@ def main():
 if __name__ == "__main__":
     """
     python rotate_material.py /path/to/your/material_params.json --axis z --angle 45
+    python rotate_json.py ZCYSX0.json --axis z --angle 180
     """
     main()
