@@ -216,6 +216,13 @@ location_fns = [load_location]
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3',],direction="isotropy",value=1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
+# tileHandler = TileHandler(typeList=['BCC3', 'cubic1', '++'], 
+#                           direction=(('back',"front"),("left","right"),("top","bottom")),
+#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+# tileHandler.selfConnectable(typeName=['++','BCC3', 'cubic1'],value=1)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'BCC3',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
 
 
 
@@ -227,18 +234,35 @@ location_fns = [load_location]
 # tileHandler.setConnectiability(fromTypeName='BCC3',toTypeName=[ 'cubic1',],direction="isotropy",value=1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'cubic1',],direction="isotropy",value=0,dual=True)
 
+# tileHandler = TileHandler(typeList=['++' ], 
+#                           direction=(('back',"front"),("left","right"),("top","bottom")),
+#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+# tileHandler.selfConnectable(typeName=['++'],value=1)
 
 
-tileHandler = TileHandler(typeList=['++', 'TTx0', 'TTx180'], 
+
+# tileHandler = TileHandler(typeList=['++', 'TTx0', 'TTx180'], 
+#                           direction=(('back',"front"),("left","right"),("top","bottom")),
+#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+# tileHandler.selfConnectable(typeName=['++','TTx0', 'TTx180'],value=1)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
+
+
+tileHandler = TileHandler(typeList=['ZCYS', 'ZCYSx0', 'ZCYSx180'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.selfConnectable(typeName=['++','TTx0', 'TTx180'],value=1)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
-tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=0,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
+tileHandler.selfConnectable(typeName=['ZCYS','ZCYSx0', 'ZCYSx180'],value=1)
+tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0','ZCYSx180'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx0',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0',],direction="right",value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx180',],direction="left",value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx180',],direction=["left","right"],value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYSx0',toTypeName=[ 'ZCYSx0',],direction=["left","right"],value=0,dual=True)
 
 
 
@@ -247,7 +271,9 @@ print(tileHandler)
 tileHandler.constantlize_compatibility()
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
-p=[5,4,4]
+p=[4,3,3]
+# p=[3,]
+
 sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", p=p, debug=False) #3,4 445 544 
 # sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", debug=False) #3,4
 
@@ -333,10 +359,10 @@ def material_selection_loss(rho, alpha=5.0):
 
 
 
-vt=0.5
-vf0 = 0.2
-vf1 = 0.2
-vf2 = 0.15
+vt=0.5 #0.5
+vf0 = 0.2 #0.2
+vf1 = 0.2 #0.2
+vf2 = 0.15 #0.15
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
 numConstraints = 5
 def consHandle(rho,*args):
@@ -358,6 +384,10 @@ def consHandle(rho,*args):
     # c=np.array([ ct,c0,c1 ])
     # gradc=np.array([ gradct,gradc0,gradc1])
 
+    # c=np.array([c0,])
+    # gradc=np.array([gradc0])
+    # c=np.array([ct, c0, c1, c2 ])
+    # gradc=np.array([gradct, gradc0, gradc1, gradc2 ])
     c=np.array([ct, cm, c0, c1, c2 ])
     gradc=np.array([gradct, gradcm, gradc0, gradc1, gradc2 ])
     # print(f"c.shape:{c.shape}")
@@ -369,67 +399,77 @@ adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 from src.WFC.WFCFilter_JAX_log_monotonicity import preprocess_adjacency,waveFunctionCollapse
 
 
-# # 预构建邻接矩阵和方向矩阵（仅一次）
-# A, D = preprocess_adjacency(adj, tileHandler)
-# wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
+# 预构建邻接矩阵和方向矩阵（仅一次）
+A, D = preprocess_adjacency(adj, tileHandler)
+wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
-# # Finalize the details of the MMA optimizer, and solve the TO problem.
-# optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"multi",'filter_radius':1.}
+# Finalize the details of the MMA optimizer, and solve the TO problem.
+optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"multi",'filter_radius':1}
 
-# key = jax.random.PRNGKey(0)
-# rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.15
-# rho_ini = rho_ini.at[:,1].set(0.15)
-# rho_ini = rho_ini.at[:,2].set(0.10)
+key = jax.random.PRNGKey(0)
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.15
+rho_ini = rho_ini.at[:,1].set(0.15)
+rho_ini = rho_ini.at[:,2].set(0.10)
 
-# # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
+# rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
 # import jax_fem.mma_ori as mo
-# rho_oped,infos=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
-# # rho_oped,J_list = mo.optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,)
+rho_oped,infos=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
+# rho_oped,J_list = mo.optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,)
 
-# np.save("data/npy/rho_oped",rho_oped)
-
-
-# # Plot the optimization results.
-# obj = onp.array(outputs)
-# create_directory_if_not_exists("data/csv")
-# onp.savetxt( "data/csv/topo_obj.csv", onp.array(obj), delimiter="," )
+np.save("data/npy/rho_oped",rho_oped)
 
 
-# fig=plt.figure(figsize=(12, 5))
-# ax=fig.add_subplot(1,2,1)
-# ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
-# clear_ratio = []
-# for index, (epoch, results) in enumerate(infos.items()):
-#     clear_ratio.append(results["clear_ratio"])
-# ax=fig.add_subplot(1,2,2)
-# ax.plot(onp.arange(len(clear_ratio)) + 1, onp.array(clear_ratio), linestyle='-', linewidth=2, color='black')
-# # ax.xlabel(r"Optimization step", fontsize=20)
-# # ax.ylabel(r"Objective value", fontsize=20)
-# # ax.tick_params(labelsize=20)
-# # ax.tick_params(labelsize=20)
-
-# plt.savefig("data/topo_obj.tiff")
-# plt.show()
+# Plot the optimization results.
+obj = onp.array(outputs)
+create_directory_if_not_exists("data/csv")
+onp.savetxt( "data/csv/topo_obj.csv", onp.array(obj), delimiter="," )
 
 
+fig=plt.figure(figsize=(12, 5))
+ax=fig.add_subplot(1,2,1)
+ax.plot(onp.arange(len(obj)) + 1, obj, linestyle='-', linewidth=2, color='black')
+clear_ratio = []
+for index, (epoch, results) in enumerate(infos.items()):
+    clear_ratio.append(results["clear_ratio"])
+ax=fig.add_subplot(1,2,2)
+ax.plot(onp.arange(len(clear_ratio)) + 1, onp.array(clear_ratio), linestyle='-', linewidth=2, color='black')
+# ax.xlabel(r"Optimization step", fontsize=20)
+# ax.ylabel(r"Objective value", fontsize=20)
+# ax.tick_params(labelsize=20)
+# ax.tick_params(labelsize=20)
 
-rho_oped = np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180完全约束有filter/npy/rho_oped.npy")
-# rho_oped = np.load("data/npy/rho_oped.npy")
+plt.savefig("data/topo_obj.tiff")
+plt.show()
+
+
+
+# rho_oped = np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180完全约束有filter/npy/rho_oped.npy")
+rho_oped = np.load("data/npy/rho_oped.npy")
 import src.WFC.classicalWFC as normalWFC
 wfc_classical_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler))
-np.save("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180完全约束有filter/npy/wfc_classical_end.npy",wfc_classical_end)
-# lines = [f"vt:{vt}\n",
-#          f"vf0:{vf0}\n",
-#          f"vf1:{vf1}\n",
-#          f"vf2:{vf2}\n",
-#          f"tileHandler:{tileHandler}\n",
-#          f"Lx,Ly,Lz:{Lx},{Ly},{Lz}\n",
-#          f"Nx,Ny,Nz:{Nx},{Ny},{Nz}\n",
-#          f"optimizationParams:{optimizationParams}\n",
-#          ]
+np.save("data/npy/wfc_classical_end.npy",wfc_classical_end)
 
-# with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
-#     for line in lines:
-#         f.write(line)  # 写入内容
+types_str = ""
+for t in tileHandler.typeList:
+    types_str += t 
+p_str=''
+for pi in p:
+    p_str += str(pi)
+lines = [
+        #  f"vt:{vt}\n",
+         f"vf0:{vf0}\n",
+        #  f"vf1:{vf1}\n",
+        #  f"vf2:{vf2}\n",
+         f"p:{p}\n",
+         f"tileHandler:{tileHandler}\n",
+         f"Lx,Ly,Lz:{Lx},{Ly},{Lz}\n",
+         f"Nx,Ny,Nz:{Nx},{Ny},{Nz}\n",
+         f"optimizationParams:{optimizationParams}\n",
+         f"name:{types_str}{optimizationParams['sensitivity_filtering']}{optimizationParams['filter_radius']}p{p_str}"
+         ]
+
+with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
+    for line in lines:
+        f.write(line)  # 写入内容
 
