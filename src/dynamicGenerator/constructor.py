@@ -95,22 +95,44 @@ if __name__ == "__main__":
     #         size_x, size_y, size_z)
     # Cubic=STPtile("data/stp/cubic.stp",(-0.01,-0.01,-0.01,0.01,0.01,0.01,0.,0.,0.,0.02,0.02,0.02))
     # BCC=STPtile("data/stp/BCC.stp",(-0.02,-0.02,-0.02,0.02,0.02,0.02,0.,0.,0.,0.04,0.04,0.04))
-    # tileHandler = TileHandler(typeList=['BCC','cubic'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-    # tileHandler.register(['BCC','cubic'],[BCC,Cubic])
-    pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
-                                  0.01,0.02,0.01,
-                                  0.,0.01,0.,
-                                  0.02,0.02,0.02))
-    TTx0=STPtile("data/stp/TTx0.stp",(-0.01,0.,-0.01,
-                                      0.01,0.02,0.01,
-                                      0.,0.01,0.,
-                                      0.02,0.02,0.02))
-    TTx180=STPtile("data/stp/TTx180.stp",(-0.01,0.,-0.01,
-                                          0.01,0.02,0.01,
-                                          0.,0.01,0.,
-                                          0.02,0.02,0.02))
-    tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-    tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
+    # pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
+    #                               0.01,0.02,0.01,
+    #                               0.,0.01,0.,
+    #                               0.02,0.02,0.02))
+    # tileHandler = TileHandler(typeList=['BCC','cubic','pp'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    # tileHandler.register(['BCC','cubic','pp'],[BCC,Cubic,pp])
+    
+    ZCYS=STPtile("data/stp/ZCYS.stp",(-5,-5,-5,
+                                  5,5,5,
+                                  0.,0.,0.,
+                                  10,10,10))
+    ZCYSx0=STPtile("data/stp/ZCYSx0.stp",(-5,-5,-5,
+                                  5,5,5,
+                                  0.,0.,0.,
+                                  10,10,10))
+    ZCYSx180=STPtile("data/stp/ZCYSx180.stp",(-5,-5,-5,
+                                  5,5,5,
+                                  0.,0.,0.,
+                                  10,10,10))
+    tileHandler = TileHandler(typeList=['ZCYS','ZCYSx0','ZCYSx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    tileHandler.register(['ZCYS','ZCYSx0','ZCYSx180'],[ZCYS,ZCYSx0,ZCYSx180])
+    
+    
+    
+    # pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
+    #                               0.01,0.02,0.01,
+    #                               0.,0.01,0.,
+    #                               0.02,0.02,0.02))
+    # TTx0=STPtile("data/stp/TTx0.stp",(-0.01,0.,-0.01,
+    #                                   0.01,0.02,0.01,
+    #                                   0.,0.01,0.,
+    #                                   0.02,0.02,0.02))
+    # TTx180=STPtile("data/stp/TTx180.stp",(-0.01,0.,-0.01,
+    #                                       0.01,0.02,0.01,
+    #                                       0.,0.01,0.,
+    #                                       0.02,0.02,0.02))
+    # tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    # tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
     from jax_fem.generate_mesh import get_meshio_cell_type,box_mesh_gmsh
     import meshio
     ele_type = 'HEX8'
@@ -129,9 +151,9 @@ if __name__ == "__main__":
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
     # rho=np.load("data/npy/wfc_end.npy").reshape(-1,tileHandler.typeNum)
-    toConstuct=np.load("/home/sck/metaOptimization/data/vtk++TT0TT180完全约束有filter/npy/wfc_classical_end.npy").reshape(-1,tileHandler.typeNum)
+    toConstuct=np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtkZCYSZCYSx0ZCYSx180common1.8p544/npy/wfc_classical_end.npy").reshape(-1,tileHandler.typeNum)
 
     # import src.WFC.classicalWFC as normalWFC
     # wfc_classical_end ,max_entropy, collapse_list= normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler)
     # np.save("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk更清晰++TT0TT180/npy/wfc_classical_end.npy",wfc_classical_end)
-    export_cell_structures(mesh,toConstuct,tileHandler,"/home/sck/metaOptimization/data/vtk++TT0TT180完全约束有filter/wfc_classical_end.stp")
+    export_cell_structures(mesh,toConstuct,tileHandler,"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtkZCYSZCYSx0ZCYSx180common1.8p544/wfc_classical_end.stp")
