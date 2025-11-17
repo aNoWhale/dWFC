@@ -533,7 +533,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     (`ref <https://doi.org/10.1016/j.compstruc.2018.01.008>`_).
     """
     # stop condition
-    tol_obj = optimizationParams.get('tol_obj', 1e-6)
+    tol_obj = optimizationParams.get('tol_obj', 1e-4)
     tol_design = optimizationParams.get('tol_design', 1e-1)
     tol_con = optimizationParams.get('tol_con', 1e-1)
     min_iters = optimizationParams.get('min_iters', 10)
@@ -592,7 +592,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             # rho = applyDensityFilter(ft, rho)
             rho,_,_=WFC(rho.reshape(-1,tileNum))
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
-            rho = jax.nn.softmax(rho,axis=-1)
+            # rho = jax.nn.softmax(rho,axis=-1)
             # rho = heaviside(rho,2^(loop//5))
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
