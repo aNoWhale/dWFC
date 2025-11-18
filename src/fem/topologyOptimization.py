@@ -175,7 +175,7 @@ cell_type = get_meshio_cell_type(ele_type)
 # Nx, Ny, Nz = 60, 10, 30
 # Lx, Ly, Lz = 10., 2., 5.
 # Nx, Ny, Nz = 10, 2, 5
-Lx, Ly, Lz = 40., 5., 20.
+Lx, Ly, Lz = 40., 5., 20. #单位竟然是厘米？
 Nx, Ny, Nz = 40, 5, 20
 create_directory_if_not_exists("data/msh")
 mshname=f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}.msh"
@@ -258,17 +258,17 @@ location_fns = [load_location]
 # tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
 
 
-tileHandler = TileHandler(typeList=['ZCYS', 'ZCYSx0', 'ZCYSx180'], 
-                          direction=(('back',"front"),("left","right"),("top","bottom")),
-                          direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.selfConnectable(typeName=['ZCYS','ZCYSx0', 'ZCYSx180'],value=1)
-# tileHandler.selfConnectable(typeName=['void'],value=1)
-tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0','ZCYSx180'],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx0',],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0',],direction="right",value=0,dual=True)
-tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx180',],direction="left",value=0,dual=True)
-tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx180',],direction=["left","right"],value=0,dual=True)
-tileHandler.setConnectiability(fromTypeName='ZCYSx0',toTypeName=[ 'ZCYSx0',],direction=["left","right"],value=0,dual=True)
+# tileHandler = TileHandler(typeList=['ZCYS', 'ZCYSx0', 'ZCYSx180'], 
+#                           direction=(('back',"front"),("left","right"),("top","bottom")),
+#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+# tileHandler.selfConnectable(typeName=['ZCYS','ZCYSx0', 'ZCYSx180'],value=1)
+# # tileHandler.selfConnectable(typeName=['void'],value=1)
+# tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0','ZCYSx180'],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx0',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0',],direction="right",value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx180',],direction="left",value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx180',],direction=["left","right"],value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='ZCYSx0',toTypeName=[ 'ZCYSx0',],direction=["left","right"],value=0,dual=True)
 # tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ 'ZCYSx0','ZCYSx180',"ZCYS"],direction="isotropy",value=1,dual=True)
 
 
@@ -405,7 +405,7 @@ def consHandle(rho,*args):
     return c, gradc
 
 adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
-from src.WFC.WFCFilter_JAX_log_monotonicity import preprocess_adjacency,waveFunctionCollapse
+from src.WFC.WFCFilter_JAX_log_monotonicity_nonor import preprocess_adjacency,waveFunctionCollapse
 
 
 # 预构建邻接矩阵和方向矩阵（仅一次）
@@ -481,7 +481,7 @@ lines = [
          f'simp',
         #  f"noWFC",
          f"nosoftmax",
-         f'smoothHeaviside'
+        #  f'smoothHeaviside'
          ]
 
 with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:

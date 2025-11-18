@@ -740,19 +740,19 @@ def compute_material_grayness(rho_f: jnp.ndarray,
     clear_ratio = jnp.sum(max_probs > threshold)/ rho_f.shape[0]
     return float(grayness), float(clear_ratio), element_grayness
 
-# @jit
-# def heaviside(x: jnp.ndarray,eta=0.5, beta: float = 10.0) -> jnp.ndarray:
-#     """
-#     简化的Heaviside投影函数。
+@jit
+def heaviside(x: jnp.ndarray,eta=0.5, beta: float = 10.0) -> jnp.ndarray:
+    """
+    简化的Heaviside投影函数。
     
-#     参数:
-#         x: 输入数组
-#         beta: 投影锐度参数
-#     返回:
-#         投影后的数组
-#     """
-#     return jnp.tanh(beta * eta) + jnp.tanh(beta * (x - eta)) / (
-#         jnp.tanh(beta * eta) + jnp.tanh(beta * eta))
+    参数:
+        x: 输入数组
+        beta: 投影锐度参数
+    返回:
+        投影后的数组
+    """
+    return jnp.tanh(beta * eta) + jnp.tanh(beta * (x - eta)) / (
+        jnp.tanh(beta * eta) + jnp.tanh(beta * eta))
 
 
 @partial(jit, static_argnames=('beta',))
