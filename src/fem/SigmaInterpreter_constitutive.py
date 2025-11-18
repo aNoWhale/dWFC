@@ -222,7 +222,7 @@ def hpdmo_stiffness_matrix(EVGs:np.ndarray, rhos, ps, beta=10):
     G12=EVGs[...,9][:,None]
     G13=EVGs[...,10][:,None]
     G23=EVGs[...,11][:,None]
-    eps = 1e-12 #-10
+    eps = 1e-12 #1e-10
 
     E11_min=eps*E11 #(tiles, )
     E22_min=eps*E22

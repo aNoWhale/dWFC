@@ -258,16 +258,18 @@ tileHandler.selfConnectable(typeName=['ZCYS'],value=1)
 # tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
 
 
-# tileHandler = TileHandler(typeList=['ZCYS', 'ZCYSx0', 'ZCYSx180'], 
-#                           direction=(('back',"front"),("left","right"),("top","bottom")),
-#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-# tileHandler.selfConnectable(typeName=['ZCYS','ZCYSx0', 'ZCYSx180'],value=1)
-# tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0','ZCYSx180'],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx0',],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0',],direction="right",value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx180',],direction="left",value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx180',],direction=["left","right"],value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYSx0',toTypeName=[ 'ZCYSx0',],direction=["left","right"],value=0,dual=True)
+tileHandler = TileHandler(typeList=['ZCYS', 'ZCYSx0', 'ZCYSx180'], 
+                          direction=(('back',"front"),("left","right"),("top","bottom")),
+                          direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+tileHandler.selfConnectable(typeName=['ZCYS','ZCYSx0', 'ZCYSx180'],value=1)
+# tileHandler.selfConnectable(typeName=['void'],value=1)
+tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0','ZCYSx180'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx0',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0',],direction="right",value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx180',],direction="left",value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx180',],direction=["left","right"],value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYSx0',toTypeName=[ 'ZCYSx0',],direction=["left","right"],value=0,dual=True)
+# tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ 'ZCYSx0','ZCYSx180',"ZCYS"],direction="isotropy",value=1,dual=True)
 
 
 
@@ -378,7 +380,8 @@ def consHandle(rho,*args):
     #     g = np.mean(rho)/vf0 - 1.
     #     return g
     def totalVolume(rho):
-        t = np.mean(np.sum(rho,axis=-1,keepdims=False))/vt -1 #没用二次形式的时候应该也行
+        t = np.mean(np.sum(rho,axis=-1,keepdims=False)-rho[:,-1])/vt -1 #没用二次形式的时候应该也行
+
         return t
     ct, gradct = jax.value_and_grad(totalVolume)(rho)
     # cm , gradcm = jax.value_and_grad(material_selection_loss)(rho)
@@ -472,7 +475,12 @@ lines = [
          f"Lx,Ly,Lz:{Lx},{Ly},{Lz}\n",
          f"Nx,Ny,Nz:{Nx},{Ny},{Nz}\n",
          f"optimizationParams:{optimizationParams}\n",
-         f"name:{types_str}{optimizationParams['sensitivity_filtering']}{optimizationParams['filter_radius']}p{p_str}"
+         f"name:{types_str}{optimizationParams['sensitivity_filtering']}{optimizationParams['filter_radius']}p{p_str}",
+         f'hpdmo',
+        #  f'simp',
+         f"noWFC",
+         f"nosoftmax",
+         f'smoothHeaviside'
          ]
 
 with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
