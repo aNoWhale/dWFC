@@ -93,7 +93,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., -1])
+            return np.array([0., 0., -0.3])
         return [surface_map]
 
     def set_params(self, params):
@@ -239,10 +239,10 @@ location_fns = [load_location]
 #                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
 # tileHandler.selfConnectable(typeName=['++'],value=1)
 
-tileHandler = TileHandler(typeList=['ZCYS' ], 
-                          direction=(('back',"front"),("left","right"),("top","bottom")),
-                          direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.selfConnectable(typeName=['ZCYS'],value=1)
+# tileHandler = TileHandler(typeList=['ZCYS' ], 
+#                           direction=(('back',"front"),("left","right"),("top","bottom")),
+#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+# tileHandler.selfConnectable(typeName=['ZCYS'],value=1)
 
 
 
@@ -279,7 +279,7 @@ tileHandler.constantlize_compatibility()
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
 # p=[4,3,3]
-p=[3,]
+p=[4,3,3]
 
 sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", p=p, debug=False) #3,4 445 544 
 # sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", debug=False) #3,4
@@ -366,12 +366,12 @@ def material_selection_loss(rho, alpha=5.0):
 
 
 
-vt=0.35 #0.5
-# vf0 = 0.2 #0.2
-# vf1 = 0.2 #0.2
-# vf2 = 0.15 #0.15
+vt=0.5 #0.5
+vf0 = 0.35 #0.2
+vf1 = 0.2 #0.2
+vf2 = 0.2 #0.15
 # Prepare g and dg/d(theta) that are required by the MMA optimizer.
-numConstraints = 1
+numConstraints = 5
 def consHandle(rho,*args):
     # MMA solver requires (c, dc) as inputs
     # c should have shape (numConstraints,)
@@ -380,25 +380,25 @@ def consHandle(rho,*args):
     #     g = np.mean(rho)/vf0 - 1.
     #     return g
     def totalVolume(rho):
-        t = np.mean(np.sum(rho,axis=-1,keepdims=False)-rho[:,-1])/vt -1 #没用二次形式的时候应该也行
+        t = np.mean(np.sum(rho,axis=-1,keepdims=False))/vt -1 #没用二次形式的时候应该也行
 
         return t
     ct, gradct = jax.value_and_grad(totalVolume)(rho)
-    # cm , gradcm = jax.value_and_grad(material_selection_loss)(rho)
-    # c0, gradc0 = jax.value_and_grad(lambda rho: (np.mean(rho[...,0])/vf0)-1 )(rho)
-    # c1, gradc1 = jax.value_and_grad(lambda rho: (np.mean(rho[...,1])/vf1)-1 )(rho)
-    # c2, gradc2 = jax.value_and_grad(lambda rho: (np.mean(rho[...,2])/vf2)-1 )(rho)
+    cm , gradcm = jax.value_and_grad(material_selection_loss)(rho)
+    c0, gradc0 = jax.value_and_grad(lambda rho: (np.mean(rho[...,0])/vf0)-1 )(rho)
+    c1, gradc1 = jax.value_and_grad(lambda rho: (np.mean(rho[...,1])/vf1)-1 )(rho)
+    c2, gradc2 = jax.value_and_grad(lambda rho: (np.mean(rho[...,2])/vf2)-1 )(rho)
     # c0, gradc0 = jax.value_and_grad(computeGlobalVolumeConstraint)(rho)
 
-    c=np.array([ ct ])
-    gradc=np.array([ gradct])
+    # c=np.array([ ct ])
+    # gradc=np.array([ gradct])
 
     # c=np.array([c0,])
     # gradc=np.array([gradc0])
     # c=np.array([ct, c0, c1, c2 ])
     # gradc=np.array([gradct, gradc0, gradc1, gradc2 ])
-    # c=np.array([ct, cm, c0, c1, c2 ])
-    # gradc=np.array([gradct, gradcm, gradc0, gradc1, gradc2 ])
+    c=np.array([ct, cm, c0, c1, c2 ])
+    gradc=np.array([gradct, gradcm, gradc0, gradc1, gradc2 ])
     # print(f"c.shape:{c.shape}")
     # print(f"gradc.shape:{gradc.shape}")
     c = c.reshape((-1,))
@@ -413,12 +413,12 @@ A, D = preprocess_adjacency(adj, tileHandler)
 wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"multi",'filter_radius':1.8}
+optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"common",'filter_radius':1.8}
 
 key = jax.random.PRNGKey(0)
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.6
-# rho_ini = rho_ini.at[:,1].set(0.15)
-# rho_ini = rho_ini.at[:,2].set(0.10)
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.35
+rho_ini = rho_ini.at[:,1].set(0.2)
+rho_ini = rho_ini.at[:,2].set(0.2)
 
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
@@ -466,19 +466,20 @@ p_str=''
 for pi in p:
     p_str += str(pi)
 lines = [
+         f'f',
          f"vt:{vt}\n",
-        #  f"vf0:{vf0}\n",
-        #  f"vf1:{vf1}\n",
-        #  f"vf2:{vf2}\n",
+         f"vf0:{vf0}\n",
+         f"vf1:{vf1}\n",
+         f"vf2:{vf2}\n",
          f"p:{p}\n",
          f"tileHandler:{tileHandler}\n",
          f"Lx,Ly,Lz:{Lx},{Ly},{Lz}\n",
          f"Nx,Ny,Nz:{Nx},{Ny},{Nz}\n",
          f"optimizationParams:{optimizationParams}\n",
-         f"name:{types_str}{optimizationParams['sensitivity_filtering']}{optimizationParams['filter_radius']}p{p_str}",
-         f'hpdmo',
-        #  f'simp',
-         f"noWFC",
+         f"name:f{types_str}{optimizationParams['sensitivity_filtering']}{optimizationParams['filter_radius']}p{p_str}",
+        #  f'hpdmo',
+         f'simp',
+        #  f"noWFC",
          f"nosoftmax",
          f'smoothHeaviside'
          ]

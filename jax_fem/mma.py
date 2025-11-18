@@ -590,11 +590,11 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         def filter_chain(rho,WFC,ft,loop):
             # rho = applyDensityFilter(ft, rho)
-            # rho,_,_=WFC(rho.reshape(-1,tileNum))
+            rho,_,_=WFC(rho.reshape(-1,tileNum))
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # rho = jax.nn.softmax(rho,axis=-1)
             # rho = heaviside(rho,2^(loop//10))
-            rho = smooth_heaviside(rho, beta=2**(loop//5))
+            # rho = smooth_heaviside(rho, beta=2**((loop-0.5)//5))
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):
@@ -604,7 +604,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         rho_f_vjp, vjp_fn = jax.vjp(filter_chain_vjp, rho)
 
 
-        rho_f = rho
+        rho_f = rho_f_vjp
         rfmean = jnp.mean(rho_f)
         rfmin = jnp.min(rho_f)
         rfmax = jnp.max(rho_f)
@@ -729,9 +729,9 @@ def compute_material_grayness(rho_f: jnp.ndarray,
     element_grayness: 每个单元的灰度值, 用于详细分析
     """
     # 数值稳定性: 确保概率和为1
-    rho_normalized = rho_f / (jnp.sum(rho_f, axis=-1, keepdims=True) + 1e-12)
+    # rho_normalized = rho_f / (jnp.sum(rho_f, axis=-1, keepdims=True) + 1e-12)
     # 计算每个单元的最大概率 (清晰度)
-    max_probs = jnp.max(rho_normalized, axis=-1)
+    max_probs = jnp.max(rho_f, axis=-1)
     # 灰度 = 1 - 最大概率 (度量模糊程度)
     element_grayness = 1.0 - max_probs
     # 全局平均灰度
