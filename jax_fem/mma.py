@@ -540,7 +540,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     sensitivity_filtering = optimizationParams.get('sensitivity_filtering',"common")
 
 
-    jplotter = Jplotter()
+    # jplotter = Jplotter()
     J_prev = np.inf
     rho_prev = rho_ini.copy()
     rho = rho_ini
@@ -590,11 +590,11 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         def filter_chain(rho,WFC,ft,loop):
             # rho = applyDensityFilter(ft, rho)
-            # rho,_,_=WFC(rho.reshape(-1,tileNum))
+            rho,_,_=WFC(rho.reshape(-1,tileNum))
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # rho = jax.nn.softmax(rho,axis=-1)
             # rho = heaviside(rho,2^(loop//10))
-            rho = smooth_heaviside(rho, beta=2**((loop-0.5)//5))
+            # rho = smooth_heaviside(rho, beta=2**((loop-0.5)//5))
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):

@@ -406,7 +406,7 @@ def consHandle(rho,*args):
     return c, gradc
 
 adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
-from src.WFC.WFCFilter_JAX_log_monotonicity_nonor import preprocess_adjacency,waveFunctionCollapse
+from src.WFC.WFCFilter_JAX_log_Sigma import preprocess_adjacency,waveFunctionCollapse
 
 
 # 预构建邻接矩阵和方向矩阵（仅一次）
@@ -417,7 +417,7 @@ wfc=lambda prob: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array
 optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"multi",'filter_radius':1.8}
 
 key = jax.random.PRNGKey(0)
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.6
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.35
 # rho_ini = rho_ini.at[:,1].set(0.15)
 # rho_ini = rho_ini.at[:,2].set(0.10)
 
@@ -479,7 +479,7 @@ lines = [
          f"name:{types_str}{optimizationParams['sensitivity_filtering']}{optimizationParams['filter_radius']}p{p_str}",
         #  f'hpdmo',
          f'simp',
-         f"noWFC",
+        #  f"noWFC",
          f"nosoftmax",
         #  f'smoothHeaviside'
          ]
