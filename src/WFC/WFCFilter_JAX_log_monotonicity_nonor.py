@@ -56,7 +56,7 @@ def get_neighbors(csr, index):
 
 
 @partial(jax.jit, static_argnames=())
-def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_compatibility, log_init_probs, key, alpha=0.,): #0.3 
+def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_compatibility, log_init_probs, key, alpha=0.3,): #0.3 
     n_cells, n_tiles = log_probs.shape
     # 1. 生成软掩码（保持不变）
     collapse_mask = soft_mask(collapse_idx, n_cells)
@@ -92,7 +92,7 @@ def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_
     log_neighbor_probs = jnp.clip(log_neighbor_probs, -50, 0)  # 限制极端值
     
     # 4.5 对数空间的连乘（加法）与求和（logsumexp）
-    # log_update_factors = log_compat + log_neighbor_probs[:, None, :]  # 连乘→加法
+    log_update_factors = log_compat + log_neighbor_probs[:, None, :]  # 连乘→加法
     # log_sum_factors = jax.scipy.special.logsumexp(log_update_factors, axis=2)  # 对tile维度求和
     # sum_log = jax.scipy.special.logsumexp(log_sum_factors, axis=0)  # 对邻居维度求和
     # sum_log = jnp.clip(sum_log, -50, 0)

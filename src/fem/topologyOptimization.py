@@ -258,18 +258,18 @@ location_fns = [load_location]
 # tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
 
 
-# tileHandler = TileHandler(typeList=['ZCYS', 'ZCYSx0', 'ZCYSx180'], 
-#                           direction=(('back',"front"),("left","right"),("top","bottom")),
-#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-# tileHandler.selfConnectable(typeName=['ZCYS','ZCYSx0', 'ZCYSx180'],value=1)
-# # tileHandler.selfConnectable(typeName=['void'],value=1)
-# tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0','ZCYSx180'],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx0',],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0',],direction="right",value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx180',],direction="left",value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx180',],direction=["left","right"],value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='ZCYSx0',toTypeName=[ 'ZCYSx0',],direction=["left","right"],value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ 'ZCYSx0','ZCYSx180',"ZCYS"],direction="isotropy",value=1,dual=True)
+tileHandler = TileHandler(typeList=['ZCYS', 'ZCYSx0', 'ZCYSx180','void'], 
+                          direction=(('back',"front"),("left","right"),("top","bottom")),
+                          direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+tileHandler.selfConnectable(typeName=['ZCYS','ZCYSx0', 'ZCYSx180'],value=1)
+tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0','ZCYSx180'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx0',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx0',],direction="right",value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYS',toTypeName=[ 'ZCYSx180',],direction="left",value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYSx180',toTypeName=[ 'ZCYSx180',],direction=["left","right"],value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='ZCYSx0',toTypeName=[ 'ZCYSx0',],direction=["left","right"],value=0,dual=True)
+tileHandler.selfConnectable(typeName=['void'],value=1)
+tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ 'ZCYSx0','ZCYSx180',"ZCYS"],direction="isotropy",value=1,dual=True)
 
 
 
@@ -279,7 +279,7 @@ tileHandler.constantlize_compatibility()
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
 # p=[4,3,3]
-p=[4,3,3]
+p=[4,3,3,3]
 
 sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", p=p, debug=False) #3,4 445 544 
 # sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", debug=False) #3,4
@@ -380,7 +380,9 @@ def consHandle(rho,*args):
     #     g = np.mean(rho)/vf0 - 1.
     #     return g
     def totalVolume(rho):
-        t = np.mean(np.sum(rho,axis=-1,keepdims=False))/vt -1 #没用二次形式的时候应该也行
+        # t = np.mean(np.sum(rho,axis=-1,keepdims=False))/vt -1 
+        t = np.mean(np.sum(rho,axis=-1,keepdims=False)-rho[:,-1])/vt -1 
+
 
         return t
     ct, gradct = jax.value_and_grad(totalVolume)(rho)
@@ -405,7 +407,7 @@ def consHandle(rho,*args):
     return c, gradc
 
 adj=build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
-from src.WFC.WFCFilter_JAX_log_monotonicity_nonor import preprocess_adjacency,waveFunctionCollapse
+from src.WFC.WFCFilter_JAX_log import preprocess_adjacency,waveFunctionCollapse
 
 
 # 预构建邻接矩阵和方向矩阵（仅一次）
@@ -481,7 +483,7 @@ lines = [
          f'simp',
         #  f"noWFC",
          f"nosoftmax",
-        #  f'smoothHeaviside'
+         f'smoothHeaviside'
          ]
 
 with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
