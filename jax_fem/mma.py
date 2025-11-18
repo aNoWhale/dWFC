@@ -590,10 +590,10 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         def filter_chain(rho,WFC,ft,loop):
             # rho = applyDensityFilter(ft, rho)
-            rho,_,_=WFC(rho.reshape(-1,tileNum))
+            # rho,_,_=WFC(rho.reshape(-1,tileNum))
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # rho = jax.nn.softmax(rho,axis=-1)
-            # rho = heaviside(rho,2^(loop//5))
+            # rho = heaviside(rho,2^(loop//10))
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):
@@ -736,7 +736,7 @@ def compute_material_grayness(rho_f: jnp.ndarray,
     # 全局平均灰度
     grayness = jnp.mean(element_grayness)
     # 清晰单元比例 (最大概率超过阈值)
-    clear_ratio = jnp.mean(max_probs > threshold)
+    clear_ratio = jnp.sum(max_probs > threshold)/ rho_f.shape[0]
     return float(grayness), float(clear_ratio), element_grayness
 
 @jit
