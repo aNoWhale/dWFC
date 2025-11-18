@@ -56,7 +56,7 @@ def get_neighbors(csr, index):
 
 
 @partial(jax.jit, static_argnames=())
-def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_compatibility, log_init_probs, key, alpha=0.,): #0.3 
+def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_compatibility, log_init_probs, key, alpha=0.3,): #0.3 
     n_cells, n_tiles = log_probs.shape
     # 1. 生成软掩码（保持不变）
     collapse_mask = soft_mask(collapse_idx, n_cells)

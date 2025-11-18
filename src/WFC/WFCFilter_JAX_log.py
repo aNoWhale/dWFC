@@ -56,7 +56,7 @@ def get_neighbors(csr, index):
 
 
 @partial(jax.jit, static_argnames=())
-def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_compatibility, log_init_probs, key, alpha=0.,):
+def update_by_neighbors(log_probs, collapse_idx, A, D, dirs_opposite_index, log_compatibility, log_init_probs, key, alpha=0.1,):
     n_cells, n_tiles = log_probs.shape
     # 1. 生成软掩码（保持不变）
     collapse_mask = soft_mask(collapse_idx, n_cells)
@@ -188,7 +188,7 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility):
     final_probs = jnp.exp(final_log_probs)
     final_probs = jnp.clip(final_probs, 1e-10, 1.0-1e-10)  # 确保概率在合理范围
     # 最后归一化一次，消除exp带来的微小偏差
-    # final_probs = final_probs / jnp.sum(final_probs, axis=-1, keepdims=True)
+    final_probs = final_probs / jnp.sum(final_probs, axis=-1, keepdims=True)
     
     collapse_list = jnp.arange(n_cells)
     return final_probs, 0, collapse_list

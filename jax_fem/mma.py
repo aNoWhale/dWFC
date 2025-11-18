@@ -638,8 +638,12 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print(f"sensitivity filtering: {sensitivity_filtering}")
         if sensitivity_filtering=="common":
             dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc) #一直用的这个做++TT0TT180 完全约束f1 f1.5 p544 p444
+            print(f"sensitivity filtering: common")
+
         if sensitivity_filtering=="multi":
             dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
+            print(f"sensitivity filtering: multi")
+
         
 
         print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
