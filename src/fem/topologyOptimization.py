@@ -299,7 +299,7 @@ tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ '++weak',],dir
 # # tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ 'ZCYSx0','ZCYSx180',"ZCYS"],direction="isotropy",value=1,dual=True)
 
 
-from src.WFC.WFCFilter_JAX_log_Sigma_tau_softmax import preprocess_compatibility,waveFunctionCollapse,preprocess_adjacency,compute_cell_centers
+from src.WFC.WFCFilter_JAX_Sigma_tau_softmax import preprocess_compatibility,waveFunctionCollapse,preprocess_adjacency,compute_cell_centers
 tileHandler.constantlize_compatibility()
 tileHandler._compatibility = preprocess_compatibility(tileHandler.compatibility)
 print(tileHandler)
