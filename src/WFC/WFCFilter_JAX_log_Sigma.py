@@ -138,7 +138,7 @@ def single_update_neighbors(collapse_idx, log_probs, A, D, log_compatibility):
     return log_p_updated  # 直接返回更新后的概率（无效邻居未变）
 
 @jax.jit
-def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility):
+def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, key):
     """WFC主函数：用vmap批量处理，适配可变邻居数"""
     n_cells, n_tiles = init_probs.shape
     

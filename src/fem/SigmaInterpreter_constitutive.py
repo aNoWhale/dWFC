@@ -188,18 +188,18 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
     G23_min=eps*G23
 
     # SIMP惩罚：对弹性模量E应用ρ^p惩罚
-    E11_p = E11_min + (rho ** p)[:,None] * (E11-E11_min) #(tiles, 1) ((tiles,)**(tiles,))
-    E22_p = E22_min + (rho ** p)[:,None] * (E22-E22_min) 
-    E33_p = E33_min + (rho ** p)[:,None] * (E33-E33_min)
-    G12_p = G12_min + (rho ** p)[:,None] * (G12-G12_min)
-    G13_p = G13_min + (rho ** p)[:,None] * (G13-G13_min)
-    G23_p = G23_min + (rho ** p)[:,None] * (G23-G23_min)
-    V12_p = V12_min + (rho ** q)[:,None] * (V12-V12_min)
-    V13_p = V13_min + (rho ** q)[:,None] * (V13-V13_min)
-    V23_p = V23_min + (rho ** q)[:,None] * (V23-V23_min)
-    V21_p = V21_min + (rho ** q)[:,None] * (V21-V21_min)
-    V31_p = V31_min + (rho ** q)[:,None] * (V31-V31_min)
-    V32_p = V32_min + (rho ** q)[:,None] * (V32-V32_min)
+    E11_p = E11_min + (rho ** p)[...,None] * (E11-E11_min) #(tiles, 1) ((tiles,)**(tiles,)) （cells，quad，tiles）
+    E22_p = E22_min + (rho ** p)[...,None] * (E22-E22_min) 
+    E33_p = E33_min + (rho ** p)[...,None] * (E33-E33_min)
+    G12_p = G12_min + (rho ** p)[...,None] * (G12-G12_min)
+    G13_p = G13_min + (rho ** p)[...,None] * (G13-G13_min)
+    G23_p = G23_min + (rho ** p)[...,None] * (G23-G23_min)
+    V12_p = V12_min + (rho ** q)[...,None] * (V12-V12_min)
+    V13_p = V13_min + (rho ** q)[...,None] * (V13-V13_min)
+    V23_p = V23_min + (rho ** q)[...,None] * (V23-V23_min)
+    V21_p = V21_min + (rho ** q)[...,None] * (V21-V21_min)
+    V31_p = V31_min + (rho ** q)[...,None] * (V31-V31_min)
+    V32_p = V32_min + (rho ** q)[...,None] * (V32-V32_min)
 
     return compose_stiffness_matrix(np.concatenate([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p],axis=-1),EVG.shape[0])
 
@@ -207,21 +207,21 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
 def hpdmo_stiffness_matrix(EVGs:np.ndarray, rhos, ps, beta=10):
     tau=0.5
     upper = smooth_heaviside((rhos-tau),beta)*rhos**ps # (tiles,)*(tiles,) ** (tiles )
-    # weightsDMO = upper/np.sum(upper,axis=-1,keepdims=False)
-    weightsDMO  = upper
+    weightsDMO = upper/np.sum(upper,axis=-1,keepdims=False)
+    # weightsDMO  = upper
     #EVGs (tiles,12)
-    E11=EVGs[...,0][:,None] #(tiles, 1)
-    E22=EVGs[...,1][:,None]
-    E33=EVGs[...,2][:,None]
-    V12=EVGs[...,3][:,None]
-    V13=EVGs[...,4][:,None]
-    V23=EVGs[...,5][:,None]
-    V21=EVGs[...,6][:,None]
-    V31=EVGs[...,7][:,None]
-    V32=EVGs[...,8][:,None]
-    G12=EVGs[...,9][:,None]
-    G13=EVGs[...,10][:,None]
-    G23=EVGs[...,11][:,None]
+    E11=EVGs[...,0][...,None] #(tiles, 1)
+    E22=EVGs[...,1][...,None]
+    E33=EVGs[...,2][...,None]
+    V12=EVGs[...,3][...,None]
+    V13=EVGs[...,4][...,None]
+    V23=EVGs[...,5][...,None]
+    V21=EVGs[...,6][...,None]
+    V31=EVGs[...,7][...,None]
+    V32=EVGs[...,8][...,None]
+    G12=EVGs[...,9][...,None]
+    G13=EVGs[...,10][...,None]
+    G23=EVGs[...,11][...,None]
     eps = 1e-12 #1e-10
 
     E11_min=eps*E11 #(tiles, )
@@ -238,25 +238,27 @@ def hpdmo_stiffness_matrix(EVGs:np.ndarray, rhos, ps, beta=10):
     G23_min=eps*G23
 
     # SIMP惩罚：对弹性模量E应用ρ^p惩罚
-    E11_p = E11_min + (weightsDMO[:,None]) * (E11-E11_min) # #(tiles, 1)+ (tiles, 1) * (tiles, 1)
-    E22_p = E22_min + (weightsDMO[:,None]) * (E22-E22_min) 
-    E33_p = E33_min + (weightsDMO[:,None]) * (E33-E33_min)
-    G12_p = G12_min + (weightsDMO[:,None]) * (G12-G12_min)
-    G13_p = G13_min + (weightsDMO[:,None]) * (G13-G13_min)
-    G23_p = G23_min + (weightsDMO[:,None]) * (G23-G23_min)
-    V12_p = V12_min + (weightsDMO[:,None]) * (V12-V12_min)
-    V13_p = V13_min + (weightsDMO[:,None]) * (V13-V13_min)
-    V23_p = V23_min + (weightsDMO[:,None]) * (V23-V23_min)
-    V21_p = V21_min + (weightsDMO[:,None]) * (V21-V21_min)
-    V31_p = V31_min + (weightsDMO[:,None]) * (V31-V31_min)
-    V32_p = V32_min + (weightsDMO[:,None]) * (V32-V32_min)
+    E11_p = E11_min + (weightsDMO[...,None]) * (E11-E11_min) # #(tiles, 1)+ (tiles, 1) * (tiles, 1)
+    E22_p = E22_min + (weightsDMO[...,None]) * (E22-E22_min) 
+    E33_p = E33_min + (weightsDMO[...,None]) * (E33-E33_min)
+    G12_p = G12_min + (weightsDMO[...,None]) * (G12-G12_min)
+    G13_p = G13_min + (weightsDMO[...,None]) * (G13-G13_min)
+    G23_p = G23_min + (weightsDMO[...,None]) * (G23-G23_min)
+    V12_p = V12_min + (weightsDMO[...,None]) * (V12-V12_min)
+    V13_p = V13_min + (weightsDMO[...,None]) * (V13-V13_min)
+    V23_p = V23_min + (weightsDMO[...,None]) * (V23-V23_min)
+    V21_p = V21_min + (weightsDMO[...,None]) * (V21-V21_min)
+    V31_p = V31_min + (weightsDMO[...,None]) * (V31-V31_min)
+    V32_p = V32_min + (weightsDMO[...,None]) * (V32-V32_min)
     EVGs_p= np.concatenate([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p],axis=-1) #(tiles, 12)
     return compose_stiffness_matrix(EVGs_p,EVGs_p.shape[0])
 
 
 def compose_stiffness_matrix(EVGs:np.ndarray,tiles=1):
     # 构建6x6柔度矩阵S（正交各向异性材料）
-    S = np.zeros((tiles,6, 6), dtype=np.float64)
+    # S = np.zeros((tiles,6, 6), dtype=np.float64)
+    
+    S = np.tile(np.zeros_like(EVGs[...,0][...,None,None]), (1,6,6))
     E11=EVGs[...,0] #(tiles, )
     E22=EVGs[...,1]
     E33=EVGs[...,2]
@@ -285,7 +287,7 @@ def compose_stiffness_matrix(EVGs:np.ndarray,tiles=1):
     S=S.at[...,5, 5].set( 1 / G12 ) # S66（对应1-2方向剪切）
     
     # 强制柔度矩阵对称（消除输入误差）
-    ST = np.transpose(S,[0,2,1])
+    ST = np.swapaxes(S,-1,-2)
     S = (S + ST) / 2
     
     # 刚度矩阵 = 柔度矩阵的逆 ,如果奇异的话没有逆就会出问题
@@ -314,4 +316,4 @@ def smooth_heaviside(x,beta=10.):
     """
     greater the beta, sharper the curve.
     """
-    return 1/1+np.exp(-beta*x)
+    return 1/(1+np.exp(-beta*x))

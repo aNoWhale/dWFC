@@ -124,7 +124,15 @@ def build_hex8_adjacency_with_meshio(mesh:meshio.Mesh=None,mesh_file=None):
         ([2, 3, 7, 6], "top"),
         ([3, 0, 4, 7], "left"),
     ]
-
+    # 标准方向定义：
+    # hex8_faces = [
+    #     ([0, 1, 2, 3], "bottom"),   # 底面 (w=0平面)
+    #     ([4, 5, 6, 7], "top"),      # 顶面 (w=1平面)  
+    #     ([0, 1, 5, 4], "front"),    # 前面 (v=0平面)
+    #     ([1, 2, 6, 5], "right"),    # 右面 (u=1平面)
+    #     ([2, 3, 7, 6], "back"),     # 后面 (v=1平面)
+    #     ([3, 0, 4, 7], "left"),     # 左面 (u=0平面)
+    # ]
     # 修改1: 记录面方向信息
     face_info = defaultdict(list)  # {排序后面键: [(单元索引, 方向)]}
     
