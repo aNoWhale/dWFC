@@ -18,7 +18,7 @@ import meshio
 import jax
 import jax_smi
 jax_smi.initialise_tracking()
-# jax.config.update('jax_disable_jit', True)
+jax.config.update('jax_disable_jit', True)
 jax.config.update("jax_enable_x64", True)
 from functools import partial
 import jax.numpy as np
@@ -503,7 +503,7 @@ cell_centers = jax.lax.stop_gradient(compute_cell_centers(mesh.points[mesh.cells
 wfc=lambda prob,key: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility,key, cell_centers)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':51, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"common",'filter_radius':1.8}
+optimizationParams = {'maxIters':51, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"nofilter",'filter_radius':1.8}
 
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.25
