@@ -173,10 +173,10 @@ ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
 # Lx, Ly, Lz = 60., 10., 30.
 # Nx, Ny, Nz = 60, 10, 30
-# Lx, Ly, Lz = 10., 2., 5.
-# Nx, Ny, Nz = 10, 2, 5
-Lx, Ly, Lz = 40., 5., 20. 
-Nx, Ny, Nz = 40, 5, 20
+Lx, Ly, Lz = 5., 2., 5.
+Nx, Ny, Nz = 5, 2, 5
+# Lx, Ly, Lz = 40., 5., 20. 
+# Nx, Ny, Nz = 40, 5, 20
 create_directory_if_not_exists("data/msh")
 mshname=f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}.msh"
 if not os.path.exists(f"data/msh/{mshname}"):
@@ -280,7 +280,7 @@ tileHandler = TileHandler(typeList=['++weak', 'pillar','void'],
 tileHandler.selfConnectable(typeName=["++weak",'pillar','void'],value=-1)
 tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillar','void'],direction="isotropy",value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ 'void',],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ '++weak',],direction=["left",'right','front','back'],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ '++weak',],direction=["left",'right','front','back'],value=-1,dual=True)
 
 
 
@@ -302,7 +302,7 @@ tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ 'void',],direc
 
 from src.WFC.WFCFilter_JAX_Sigma_tau_softmax import preprocess_compatibility,waveFunctionCollapse,preprocess_adjacency,compute_cell_centers
 tileHandler.constantlize_compatibility()
-tileHandler._compatibility = preprocess_compatibility(tileHandler.compatibility)
+# tileHandler._compatibility = preprocess_compatibility(tileHandler.compatibility)
 print(tileHandler)
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
@@ -506,7 +506,7 @@ wfc=lambda prob,key: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_a
 optimizationParams = {'maxIters':51, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"nofilter",'filter_radius':1.8}
 
 key = jax.random.PRNGKey(0)
-rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.25
+rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
 # rho_ini = rho_ini.at[:,1].set(0.2)
 # rho_ini = rho_ini.at[:,2].set(0.2)
 

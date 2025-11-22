@@ -74,15 +74,15 @@ def spatial_soft_mask(target_cell_idx, cell_centers, sigma=0.1, neighbor_radius=
 
 def compute_cell_centers(cell_vertices):
     """从单元顶点坐标计算单元中心（与单元排序无关）"""
-    cell_centers = jnp.mean(cell_vertices, axis=1)
-    cell_centers = cell_centers / jnp.max(jnp.abs(cell_centers))
+    cell_centers = jnp.mean(cell_vertices, axis=1,keepdims=False)
+    # cell_centers = cell_centers / jnp.max(jnp.abs(cell_centers))
     return cell_centers
 
 
 @partial(jax.jit)
 def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D, dirs_opposite_index, compatibility, alpha=0., tau=2.0):
     n_cells, n_tiles = init_probs.shape
-    eps = 1e-10  # 数值稳定性参数
+    eps = 1e-12  # 数值稳定性参数
     
     # 1. 生成空间软掩码
     collapse_mask = spatial_soft_mask(
@@ -103,7 +103,7 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     
     # 过滤无效邻居（置为0，不影响求和）
     compat = compat * neighbor_mask_broadcast[:, None]  # (n_cells, n_tiles, n_tiles)
-    compat = jnp.clip(compat, eps, 1.0)  # 避免0值
+    # compat = jnp.clip(compat, eps, 1.0)  # 避免0值
     
     # 添加微小噪声稳定梯度
     # noise = jax.random.normal(key, compat.shape) * 1e-9
@@ -111,26 +111,29 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     
     # 4. 邻居概率提取（维度：n_cells × n_tiles）
     neighbor_probs = init_probs * neighbor_mask_broadcast  # (n_cells, n_tiles)
-    neighbor_probs = jnp.clip(neighbor_probs, eps, 1.0)
+    # neighbor_probs = jnp.clip(neighbor_probs, eps, 1.0)
     
     # 5. 贡献计算（维度匹配：n_cells × n_tiles × n_tiles）
     # compat (n_cells, n_tiles, n_tiles) × neighbor_probs (n_cells, 1, n_tiles)
     # update_factors = compat * neighbor_probs[:, None, :]  # (n_cells, n_tiles, n_tiles)
     # sum_factors = jnp.sum(update_factors, axis=2)  # (n_cells, n_tiles)
-    sum_factors = jnp.einsum('ijk,ik->ij', compat, neighbor_probs)
+    sum_factors = jnp.einsum('...ijk,...ikl->...ijl', compat, neighbor_probs[...,None]).squeeze(axis=-1)
     
     # 6. 温度系数 + Softmax（维度：n_cells × n_tiles）
-    tau_sum_factors = sum_factors ** (1.0 / tau)  # 温度系数（反向缩放，保持原效果）
-    tau_sum_factors = jax.nn.softmax(tau_sum_factors, axis=1)  # 沿tile维度Softmax
+    tau_sum_factors = sum_factors
+    # tau_sum_factors = sum_factors ** (1.0 / tau)  # 温度系数（反向缩放，保持原效果）
+    # tau_sum_factors = jax.nn.softmax(tau_sum_factors, axis=-2)  # 沿tile维度Softmax
     # tau_sum_factors = jnp.clip(tau_sum_factors, eps, 1.0)
+    # jax.debug.print("tau_sum_factors:\n{a}",a=tau_sum_factors)
     
     # 7. 聚合所有邻居贡献（关键：axis=0 → 结果为(n_tiles,)）
     sum_contrib = jnp.sum(tau_sum_factors, axis=0)  # (n_tiles,)
+    # jax.debug.print("sum_contrib:\n{a}",a=sum_contrib)
     sum_contrib = jnp.clip(sum_contrib, eps, None)
     
     # 8. 更新当前单元概率（维度匹配：n_tiles,）
     p_updated = init_probs[collapse_idx] * sum_contrib  # (n_tiles,)
-    p_updated = p_updated / jnp.sum(p_updated)  # 归一化
+    # p_updated = p_updated / jnp.sum(p_updated,axis=-1)  # 归一化
     
     # 混合初始概率
     p_updated = (1 - alpha) * p_updated + alpha * init_probs[collapse_idx]
@@ -140,13 +143,13 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     # 9. 局部软更新（维度：n_cells × n_tiles）
     updated_probs = init_probs * (1 - collapse_mask) + p_updated * collapse_mask
     updated_probs = updated_probs / jnp.sum(updated_probs, axis=1)[:, None]
-    updated_probs = jnp.clip(updated_probs, eps, 1.0)
+    updated_probs = jnp.clip(updated_probs, eps, 1.0) #有待商榷
     return updated_probs
 
 @partial(jax.jit)
-def single_update_neighbors(collapse_idx, init_probs, A, D, compatibility, tau=2.0):
-    n_cells, n_tiles = init_probs.shape
-    eps = 1e-8
+def single_update_neighbors(collapse_idx, step1_probs, A, D, compatibility, tau=2.0):
+    n_cells, n_tiles = step1_probs.shape
+    eps = 1e-10
     
     # 1. 提取邻居掩码和方向
     neighbor_mask = A[collapse_idx, :]  # (n_cells,)
@@ -155,26 +158,28 @@ def single_update_neighbors(collapse_idx, init_probs, A, D, compatibility, tau=2
     
     # 2. 兼容性矩阵取值
     compat = jnp.take(compatibility, neighbor_dirs, axis=0)  # (n_cells, n_tiles, n_tiles)
-    compat = compat * neighbor_mask_broadcast[:, None]  # 过滤无效邻居
-    compat = jnp.clip(compat, eps, 1.0)
+    compat = compat * neighbor_mask_broadcast[..., None]  # 过滤无效邻居
+    # compat = jnp.clip(compat, eps, 1.0)
     
     # 3. 贡献计算
-    p_collapsed = init_probs[collapse_idx]  # (n_tiles,)
+    p_collapsed = step1_probs[collapse_idx]  # (n_tiles,)
     # compat (n_cells, n_tiles, n_tiles) × p_collapsed (1, 1, n_tiles)
     p_neigh = compat * p_collapsed[None, None, :]  # (n_cells, n_tiles, n_tiles)
+    # p_neigh = jnp.einsum("...ijk,...jkl->...ijl",compat,p_collapsed[None, None, :,None]).squeeze(axis=-1)
     contrib = jnp.sum(p_neigh, axis=2)  # (n_cells, n_tiles)
     
     # 4. 温度系数 + Softmax
-    tau_contrib = contrib ** (1.0 / tau)
-    tau_contrib = jax.nn.softmax(tau_contrib, axis=1)  # 沿tile维度Softmax
-    tau_contrib = jnp.clip(tau_contrib, eps, 1.0)
+    tau_contrib = contrib
+    # tau_contrib = contrib ** (1.0 / tau)
+    # tau_contrib = jax.nn.softmax(tau_contrib, axis=1)  # 沿tile维度Softmax
+    # tau_contrib = jnp.clip(tau_contrib, eps, 1.0)
     
     # 5. 更新邻居概率
     w = neighbor_mask_broadcast  # (n_cells, 1)
-    p_prev = init_probs  # (n_cells, n_tiles)
+    p_prev = step1_probs  # (n_cells, n_tiles)
     p_updated = (1 - w) * p_prev + w * tau_contrib
     p_updated = p_updated / jnp.sum(p_updated, axis=1)[:, None]
-    p_updated = jnp.clip(p_updated, eps, 1.0)
+    p_updated = jnp.clip(p_updated, eps, 1.0) #有待商榷
     
     return p_updated
 
@@ -197,7 +202,7 @@ def preprocess_compatibility(compatibility, compat_threshold=1e-3, eps=1e-5):
 
 
 @partial(jax.jit)
-def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, key, cell_centers, tau=1.0,*args, **kwargs):
+def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, key, cell_centers, tau=0.1,*args, **kwargs):
     """WFC主函数：用vmap批量处理，适配可变邻居数（普通空间版本）"""
     n_cells, n_tiles = init_probs.shape
     eps = 1e-10
@@ -252,7 +257,7 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     probs_step1 = jnp.sum(weighted_updates, axis=0)  # (n_cells, n_tiles) → 聚合后
     
     # 3.5 归一化+数值裁剪（保证概率分布合法）
-    probs_step1 = probs_step1 / jnp.sum(probs_step1, axis=1)[:, None]
+    probs_step1 = probs_step1 / jnp.sum(probs_step1, axis=-1)[:, None]
     probs_step1 = jnp.clip(probs_step1, eps, 1.0)
     # ========== 加权求和聚合结束 ==========
 
