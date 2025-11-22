@@ -207,7 +207,8 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     # init_probs_clipped = jnp.clip(init_probs, eps, 1.0)
     # init_probs_norm = init_probs_clipped / jnp.sum(init_probs_clipped, axis=1)[:, None]
     # 2. 兼容性矩阵预处理（确保数值稳定性）
-    compatibility_clipped = jnp.clip(compatibility, eps, 1.0)
+    compatibility_clipped = compatibility
+    # compatibility_clipped = jnp.clip(compatibility, eps, 1.0)
     
     # 3. 第一步：批量更新所有单元
     subkeys = jax.random.split(key, n_cells)

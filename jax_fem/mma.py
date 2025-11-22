@@ -708,7 +708,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         key, subkey = jax.random.split(key)
         def filter_chain(rho,WFC,ft,loop):
             # rho = applyDensityFilter(ft, rho)
-            # rho,_,_=WFC(rho.reshape(-1,tileNum),subkey)
+            rho,_,_=WFC(rho.reshape(-1,tileNum),subkey)
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # rho = jax.nn.softmax(rho,axis=-1)
             # rho = heaviside(rho,2^(loop//10))
