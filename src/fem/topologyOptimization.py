@@ -277,9 +277,10 @@ location_fns = [load_location]
 tileHandler = TileHandler(typeList=['++weak', 'pillar','void'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.selfConnectable(typeName=['++weak','pillar','void'],value=1)
+tileHandler.selfConnectable(typeName=["++weak",'pillar','void'],value=-1)
 tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillar','void'],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ '++weak',],direction=["left",'right','front','back'],value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ 'void',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ '++weak',],direction=["left",'right','front','back'],value=-1,dual=True)
 
 
 

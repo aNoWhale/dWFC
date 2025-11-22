@@ -59,7 +59,7 @@ def soft_mask(index, n_cells, tau=2.0, sigma=1.0):
     return mask
 
 @partial(jax.jit, static_argnames=['sigma', 'neighbor_radius'])
-def spatial_soft_mask(target_cell_idx, cell_centers, sigma=0.1, neighbor_radius=1.0):
+def spatial_soft_mask(target_cell_idx, cell_centers, sigma=0.1, neighbor_radius=1.2):
     """基于单元中心坐标的3D软掩码（无排序依赖，缓解梯度消失）"""
     target_center = cell_centers[target_cell_idx]
     dists = jnp.linalg.norm(cell_centers - target_center[None, :], axis=1,ord=1) #应该比2范数要好
@@ -89,7 +89,7 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
         target_cell_idx=collapse_idx,
         cell_centers=cell_centers,
         sigma=0.1,
-        neighbor_radius=1.0
+        neighbor_radius=1.2
     )[:, None]  # (n_cells, 1)
     
     # 2. 提取当前单元的邻居掩码和方向（维度修正）
@@ -106,8 +106,8 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     compat = jnp.clip(compat, eps, 1.0)  # 避免0值
     
     # 添加微小噪声稳定梯度
-    noise = jax.random.normal(key, compat.shape) * 1e-9
-    compat = jnp.clip(compat + noise, eps, 1.0)
+    # noise = jax.random.normal(key, compat.shape) * 1e-9
+    # compat = jnp.clip(compat + noise, eps, 1.0)
     
     # 4. 邻居概率提取（维度：n_cells × n_tiles）
     neighbor_probs = init_probs * neighbor_mask_broadcast  # (n_cells, n_tiles)
@@ -192,7 +192,7 @@ def preprocess_compatibility(compatibility, compat_threshold=1e-3, eps=1e-5):
     
     # 逐行乘以权重
     new_compatibility = v[:, :, None] * compatibility  # (n_dirs, n_tiles, n_tiles)
-    new_compatibility = jnp.clip(new_compatibility, eps, 1.0)
+    # new_compatibility = jnp.clip(new_compatibility, eps, 1.0)
     return new_compatibility
 
 
