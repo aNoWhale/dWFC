@@ -93,7 +93,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., 0., -1]) #-0.3
+            return np.array([0., -1, 0.]) #-0.3
         return [surface_map]
 
     def set_params(self, params):
@@ -175,8 +175,8 @@ cell_type = get_meshio_cell_type(ele_type)
 # Nx, Ny, Nz = 60, 10, 30
 # Lx, Ly, Lz = 5., 2., 5.
 # Nx, Ny, Nz = 5, 2, 5
-Lx, Ly, Lz = 40., 5., 20. 
-Nx, Ny, Nz = 40, 5, 20
+Lx, Ly, Lz = 40., 20., 5. 
+Nx, Ny, Nz = 40, 20, 5
 # Lx, Ly, Lz = 20., 5., 10. 
 # Nx, Ny, Nz = 20, 5, 10
 create_directory_if_not_exists("data/msh")
@@ -198,13 +198,13 @@ mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
 """bend"""
 def fixed_location(point):
     return np.logical_or(np.logical_and(np.isclose(point[0], 0., atol=0.1+1e-5),
-                          np.isclose(point[2], 0., atol=0.1*0+1e-5)),
-                          np.logical_and(np.isclose(point[0], Lx, atol=0.1+1e-5),
-                          np.isclose(point[2], 0., atol=0.1*Lz+1e-5)))
+                          np.isclose(point[1], 0., atol=0.1*0+1e-5)),
+                          np.logical_and(np.isclose(point[0], Lx, atol=0.1*Lx+1e-5),
+                          np.isclose(point[1], 0., atol=0.1*Ly+1e-5)))
 
 def load_location(point):
     return np.logical_and(np.isclose(point[0], Lx/2, atol=0.1*Lx+1e-5),
-                          np.isclose(point[2], Lz, atol=0.1*Lz+1e-5))
+                          np.isclose(point[1], Ly, atol=0.1*Ly+1e-5))
 
 # def load_location(point):
 #     return np.logical_and(np.isclose(point[2], Lz/2, atol=0.1*Lz+1e-5),
@@ -299,17 +299,30 @@ location_fns = [load_location]
 # tileHandler.setConnectiability(fromTypeName='TTz0',toTypeName=[ 'TTz0',],direction=["bottom","top"],value=-1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTz0','TTz180'],direction="isotropy",value=1,dual=True)
 
-tileHandler = TileHandler(typeList=['++weak', 'TTz0', 'TTz180','void'], 
+# tileHandler = TileHandler(typeList=['++weak', 'TTz0', 'TTz180','void'], 
+#                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
+#                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
+# tileHandler.selfConnectable(typeName=['++weak','TTz0', 'TTz180','void'],value=1)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTz0','TTz180'],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTz180',toTypeName=[ 'TTz0',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTz0',],direction="z+",value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTz180',],direction="z-",value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTz180',toTypeName=[ 'TTz180',],direction=["z+","z-"],value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTz0',toTypeName=[ 'TTz0',],direction=["z+","z-"],value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTz0','TTz180'],direction="isotropy",value=1,dual=True)
+
+
+tileHandler = TileHandler(typeList=['++weak', 'TTy0', 'TTy180','void'], 
                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
-tileHandler.selfConnectable(typeName=['++weak','TTz0', 'TTz180','void'],value=1)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTz0','TTz180'],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTz180',toTypeName=[ 'TTz0',],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTz0',],direction="z+",value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTz180',],direction="z-",value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTz180',toTypeName=[ 'TTz180',],direction=["z+","z-"],value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTz0',toTypeName=[ 'TTz0',],direction=["z+","z-"],value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTz0','TTz180'],direction="isotropy",value=1,dual=True)
+tileHandler.selfConnectable(typeName=['++weak','TTy0', 'TTy180','void'],value=1)
+tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTy0','TTy180'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy0',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTy0',],direction="y+",value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTy180',],direction="y-",value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy180',],direction=["y+","y-"],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTy0',toTypeName=[ 'TTy0',],direction=["y+","y-"],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTy0','TTy180'],direction="isotropy",value=1,dual=True)
 
 
 # tileHandler = TileHandler(typeList=['++weak', 'pillar','void'], 
@@ -544,7 +557,7 @@ cell_centers = jax.lax.stop_gradient(compute_cell_centers(mesh.points[mesh.cells
 wfc=lambda prob,key: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility,key, cell_centers)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"nofilter",'filter_radius':1.2}
+optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"common",'filter_radius':1.2}
 
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
@@ -616,7 +629,7 @@ lines = [
         #  f"Fe",
         #  f"Ms",
         f"3B",
-        f'+-',
+        f'xyz',
          ]
 with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
     try:
