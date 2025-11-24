@@ -268,10 +268,10 @@ tileHandler = TileHandler(typeList=['++weak', 'TTx0', 'TTx180','void'],
 tileHandler.selfConnectable(typeName=['++weak','TTx0', 'TTx180','void'],value=1)
 tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx0',],direction="right",value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx180',],direction="left",value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=0,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
 tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTx0','TTx180'],direction="isotropy",value=1,dual=True)
 
 # tileHandler = TileHandler(typeList=['++weak', 'pillar','void'], 

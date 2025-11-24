@@ -711,7 +711,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             rho,_,_=WFC(rho.reshape(-1,tileNum),subkey)
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # rho = jax.nn.softmax(rho,axis=-1)
-            rho = heaviside(rho,2^(loop//10))
+            # rho = heaviside(rho,2^(loop//10))
             # rho = smooth_heaviside(rho, beta=2**((loop-0.5)//5))
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
