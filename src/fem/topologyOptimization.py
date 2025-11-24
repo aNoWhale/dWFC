@@ -302,12 +302,12 @@ tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTx0',
 
 from src.WFC.WFCFilter_JAX_Sigma_tau_softmax import preprocess_compatibility,waveFunctionCollapse,preprocess_adjacency,compute_cell_centers
 tileHandler.constantlize_compatibility()
-# tileHandler._compatibility = preprocess_compatibility(tileHandler.compatibility)
+tileHandler._compatibility = preprocess_compatibility(tileHandler.compatibility)
 print(tileHandler)
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
-p=[4,3,3]
-# p=[4,3,3,3]
+# p=[4,3,3]
+p=[4,3,3,3]
 assert len(p)==len(tileHandler.typeList),f"p length {len(p)} must equal to tile types num {len(tileHandler.typeList)}"
 
 
@@ -380,7 +380,8 @@ def material_selection_loss(rho, alpha=5.0):
     sum_vals = np.sum(x_safe, axis=1)  # 形状: (cells,)
     
     # 处理全0情况
-    zero_mask = np.all(x_safe < 1e-6, axis=1)  # 形状: (cells,)
+    # zero_mask = np.all(x_safe < 1e-6, axis=1)  # 形状: (cells,)
+    zero_mask = np.ones(rho.shape[0])
     concentrations = np.where(zero_mask, 1.0, max_vals / (sum_vals + 1e-8))
     
     # 基础损失
@@ -396,6 +397,8 @@ def material_selection_loss(rho, alpha=5.0):
     return total_loss
 
 
+
+
 def upper_bound_constraint(rho, index, vf):
     """材料体积上限约束：mean(rho[:,index]) ≤ vf → 均值/vf - 1 ≤ 0"""
     return (np.mean(rho[:, index])) / vf - 1.0
@@ -409,19 +412,19 @@ def lower_bound_constraint(rho, index, vr):
 
 
 # ========== 3. 定义所有约束项（自动遍历的核心） ==========
-vt=0.5
+vt=0.7
 tt=0.35
-v0=0.1
-v180=0.1
+v0=0.2
+v180=0.2
 
 constraint_items = [
     # 约束1：总非空材料体积约束（sum(rho[:,0:-1])均值 ≤ vt）
     ("total_non_void_volume_without_void", lambda rho: np.mean(np.sum(rho, axis=-1)-rho[:,-1]) / vt - 1.0),
     # 约束2：材料选择损失（原有逻辑，保留）
     ("material_selection_loss", lambda rho: material_selection_loss(rho)),
-    (f"target_material_lower_bound:{tt}", lambda rho: upper_bound_constraint(rho, 0, tt)),
+    (f"target_material_upper_bound:{tt}", lambda rho: upper_bound_constraint(rho, 0, tt)),
     (f"1_lower_bound:{v0}", lambda rho: lower_bound_constraint(rho, 1, v0)),
-    # (f"2_lower_bound:{v180}", lambda rho: lower_bound_constraint(rho, 2, v180)),
+    (f"2_lower_bound:{v180}", lambda rho: lower_bound_constraint(rho, 2, v180)),
 ]
 
 # 自动获取约束数量（无需手动定义numConstraints）
@@ -503,7 +506,7 @@ cell_centers = jax.lax.stop_gradient(compute_cell_centers(mesh.points[mesh.cells
 wfc=lambda prob,key: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility,key, cell_centers)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':51, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"common",'filter_radius':1.8}
+optimizationParams = {'maxIters':51, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"nofilter",'filter_radius':1.8}
 
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum

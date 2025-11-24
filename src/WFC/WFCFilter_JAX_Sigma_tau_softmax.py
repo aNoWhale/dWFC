@@ -303,7 +303,9 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     weighted_updates_step2 = batch_updated_step2 * weights_expanded_2  
     final_probs = jnp.sum(weighted_updates_step2, axis=0)
     # 归一化+数值裁剪（保证概率合法）
-    # final_probs = final_probs / jnp.sum(final_probs, axis=1)[:, None]
+    final_probs = jnp.clip(final_probs, -1.0, 1.0)
+    final_probs = (final_probs+1)/2
+    final_probs = final_probs / jnp.sum(final_probs, axis=1)[:, None]
     final_probs = jnp.clip(final_probs, eps, 1.0)
     
     return final_probs, 0, jnp.arange(n_cells)
