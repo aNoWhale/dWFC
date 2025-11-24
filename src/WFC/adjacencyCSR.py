@@ -116,14 +116,14 @@ def build_hex8_adjacency_with_meshio(mesh:meshio.Mesh=None,mesh_file=None):
 
     # 定义六面体的面节点顺序和对应的方向标签
     # 格式: [面节点索引], "方向标签"
-    hex8_faces = [
-        ([0, 1, 2, 3], "back"),
-        ([4, 5, 6, 7], "front"),
-        ([0, 1, 5, 4], "bottom"),
-        ([1, 2, 6, 5], "right"),
-        ([2, 3, 7, 6], "top"),
-        ([3, 0, 4, 7], "left"),
-    ]
+    # hex8_faces = [
+    #     ([0, 1, 2, 3], "back"),
+    #     ([4, 5, 6, 7], "front"),
+    #     ([0, 1, 5, 4], "bottom"),
+    #     ([1, 2, 6, 5], "right"),
+    #     ([2, 3, 7, 6], "top"),
+    #     ([3, 0, 4, 7], "left"),
+    # ]
     # 标准方向定义：
     # hex8_faces = [
     #     ([0, 1, 2, 3], "bottom"),   # 底面 (w=0平面)
@@ -133,6 +133,16 @@ def build_hex8_adjacency_with_meshio(mesh:meshio.Mesh=None,mesh_file=None):
     #     ([2, 3, 7, 6], "back"),     # 后面 (v=1平面)
     #     ([3, 0, 4, 7], "left"),     # 左面 (u=0平面)
     # ]
+    hex8_faces = [
+    ([0, 1, 2, 3], "z-"),  # z轴负方向
+    ([4, 5, 6, 7], "z+"),  # z轴正方向
+    ([0, 1, 5, 4], "y-"),  # y轴负方向
+    ([1, 2, 6, 5], "x+"),  # x轴正方向
+    ([2, 3, 7, 6], "y+"),  # y轴正方向
+    ([3, 0, 4, 7], "x-"),  # x轴负方向
+    ]
+
+
     # 修改1: 记录面方向信息
     face_info = defaultdict(list)  # {排序后面键: [(单元索引, 方向)]}
     

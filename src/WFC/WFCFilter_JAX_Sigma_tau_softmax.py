@@ -80,7 +80,7 @@ def compute_cell_centers(cell_vertices):
 
 
 @partial(jax.jit)
-def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D, dirs_opposite_index, compatibility, alpha=0.5, tau=2.0):
+def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D, dirs_opposite_index, compatibility, alpha=1.0, tau=2.0):
     n_cells, n_tiles = init_probs.shape
     eps = 1e-12  # 数值稳定性参数
     
@@ -145,13 +145,13 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     
     # 9. 局部软更新（维度：n_cells × n_tiles）
     updated_probs = init_probs * (1 - collapse_mask) + p_updated * collapse_mask
-    updated_probs = updated_probs / jnp.sum(updated_probs, axis=1)[:, None]
-    updated_probs = jnp.clip(updated_probs, eps, 1.0) #有待商榷
+    # updated_probs = updated_probs / jnp.sum(updated_probs, axis=1)[:, None]
+    # updated_probs = jnp.clip(updated_probs, eps, 1.0) #有待商榷
     # jax.debug.print("updated_probs:\n{a}",a=updated_probs)
     return updated_probs
 
 @partial(jax.jit)
-def single_update_neighbors(collapse_idx, step1_probs, A, D, compatibility, alpha= 0.5,tau=2.0):
+def single_update_neighbors(collapse_idx, step1_probs, A, D, compatibility, alpha= 1.0,tau=2.0):
     n_cells, n_tiles = step1_probs.shape
     eps = 1e-10
     
@@ -183,8 +183,8 @@ def single_update_neighbors(collapse_idx, step1_probs, A, D, compatibility, alph
     p_prev = step1_probs  # (n_cells, n_tiles)
     p_updated = (1 - w) * p_prev + w * tau_contrib
     p_updated = alpha * p_updated+(1-alpha) * p_prev
-    p_updated = p_updated / jnp.sum(p_updated, axis=1)[:, None]
-    p_updated = jnp.clip(p_updated, eps, 1.0) #有待商榷
+    # p_updated = p_updated / jnp.sum(p_updated, axis=1)[:, None]
+    # p_updated = jnp.clip(p_updated, eps, 1.0) #有待商榷
     # jax.debug.print("p_updated neighbors:\n{a}",a=p_updated)
     return p_updated
 
@@ -304,10 +304,11 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     weighted_updates_step2 = batch_updated_step2 * weights_expanded_2  
     final_probs = jnp.sum(weighted_updates_step2, axis=0)
     # 归一化+数值裁剪（保证概率合法）
-    final_probs = jnp.clip(final_probs, -1.0, 1.0)
-    final_probs = (final_probs+1)/2
-    final_probs = final_probs / jnp.sum(final_probs, axis=1)[:, None]
-    final_probs = jnp.clip(final_probs, eps, 1.0)
+    # final_probs = jnp.clip(final_probs, -1.0, 1.0)
+    # final_probs = (final_probs+1)/2
+    # final_probs = final_probs / jnp.sum(final_probs, axis=-1)[:, None]
+    final_probs = final_probs / jnp.linalg.norm(final_probs, axis=-1,ord=1)[:, None]
+    # final_probs = jnp.clip(final_probs, eps, 1.0)
     
     return final_probs, 0, jnp.arange(n_cells)
 

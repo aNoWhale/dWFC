@@ -26,8 +26,8 @@ class SigmaInterpreter:
             return stress(u_grad, weights.squeeze(axis=-1))
         
 
-        Cp_list = simp_stiffness_matrix(self.EVG,weights,self.p)
-        # Cp_list = hpdmo_stiffness_matrix(self.EVG,weights,self.p,*args)
+        # Cp_list = simp_stiffness_matrix(self.EVG,weights,self.p)
+        Cp_list = hpdmo_stiffness_matrix(self.EVG,weights,self.p,*args)
 
         C_eff = np.sum(Cp_list,axis=-3,keepdims=False)
         return stress_anisotropic(C_eff, u_grad)
@@ -207,7 +207,7 @@ def simp_stiffness_matrix(EVG:np.ndarray, rho, p):
 def hpdmo_stiffness_matrix(EVGs:np.ndarray, rhos, ps, beta=10):
     tau=0.5
     upper = smooth_heaviside((rhos-tau),beta)*rhos**ps # (tiles,)*(tiles,) ** (tiles )
-    weightsDMO = upper/np.sum(upper,axis=-1,keepdims=False)
+    weightsDMO = upper/np.sum(upper,axis=-1,keepdims=True)
     # weightsDMO  = upper
     #EVGs (tiles,12)
     E11=EVGs[...,0][...,None] #(tiles, 1)
@@ -250,8 +250,8 @@ def hpdmo_stiffness_matrix(EVGs:np.ndarray, rhos, ps, beta=10):
     V21_p = V21_min + (weightsDMO[...,None]) * (V21-V21_min)
     V31_p = V31_min + (weightsDMO[...,None]) * (V31-V31_min)
     V32_p = V32_min + (weightsDMO[...,None]) * (V32-V32_min)
-    EVGs_p= np.concatenate([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p],axis=-1) #(tiles, 12)
-    return compose_stiffness_matrix(EVGs_p,EVGs_p.shape[0])
+    # EVGs_p= np.concatenate([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p],axis=-1) #(tiles, 12)
+    return compose_stiffness_matrix(np.concatenate([E11_p,E22_p,E33_p,V12_p,V13_p,V23_p,V21_p,V31_p,V32_p,G12_p,G13_p,G23_p],axis=-1),EVGs.shape[0])
 
 
 def compose_stiffness_matrix(EVGs:np.ndarray,tiles=1):

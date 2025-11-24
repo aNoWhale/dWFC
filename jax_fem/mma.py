@@ -695,9 +695,9 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         start_time=time.time()
         loop = loop + 1
         info={}
-        np.save(f"data/npy/{loop}",rho)
         # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
         alpha = 1
+        beta=0.8
         
         print(f"MMA solver...")
         print(f"collapsing...")
@@ -708,11 +708,14 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         key, subkey = jax.random.split(key)
         def filter_chain(rho,WFC,ft,loop):
             # rho = applyDensityFilter(ft, rho)
-            rho,_,_=WFC(rho.reshape(-1,tileNum),subkey)
-            rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+            rho_c,_,_=WFC(rho.reshape(-1,tileNum),subkey)
+            rho_c = rho_c.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # rho = jax.nn.softmax(rho,axis=-1)
             # rho = heaviside(rho,2^(loop//10))
             # rho = smooth_heaviside(rho, beta=2**((loop-0.5)//5))
+            rho = rho.reshape(-1,tileNum)
+            rho = beta * rho_c + (1 - beta) * rho
+            rho = rho/jnp.maximum(jnp.linalg.norm(rho,axis=-1,keepdims=True,ord=1), 1e-8)
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):
@@ -732,7 +735,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         rfmean_last = rfmean
         rfmin_last = rfmin
         rfmax_last = rfmax
-
+        np.save(f"data/npy/{loop}",rho_f)
         J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
         vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
         print(f"dJ_drho_f.shape: {dJ_drho_f.shape}\ndvc_drho_f.shape: {dvc_drho_f.shape}")
