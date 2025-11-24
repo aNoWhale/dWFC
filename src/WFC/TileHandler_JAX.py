@@ -99,7 +99,7 @@ class TileHandler:
 
         # -------------------------- 3. 兼容性矩阵初始化（保持原逻辑） --------------------------
         self.directionNum: int = len(self.direction_list)
-        self._compatibility: np.ndarray = np.zeros(
+        self._compatibility: np.ndarray|jnp.ndarray = np.zeros(
             (self.directionNum, self.typeNum, self.typeNum), dtype=np.float32
         )
 
@@ -179,7 +179,9 @@ class TileHandler:
         return self._compatibility
 
     def constantlize_compatibility(self) -> None:
-        self._compatibility = jnp.maximum(jnp.array(self._compatibility, dtype=jnp.float32), 1e-5)
+        # self._compatibility = jnp.maximum(jnp.array(self._compatibility, dtype=jnp.float32), 1e-10)
+        self._compatibility = jnp.array(self._compatibility, dtype=jnp.float32)
+
 
     # -------------------------- 6. 类型索引转换（保持原逻辑） --------------------------
     def get_name_by_index(self, index: int) -> str:

@@ -138,6 +138,124 @@ def applyDensityFilter_multi(ft, rho, beta=1.0):
     
     return rho_tilde
 
+def applySensitivityFilter_chess(ft, rho, dJ, dvc,alpha=0.8,beta=0.1):
+    """
+    三维选择性敏度过滤器（适配现有形参）：抑制空棋盘格，保留填充棋盘格
+    形参与原有函数一致，ft包含过滤所需的H（邻域矩阵）和Hs（邻域大小）
+    rho: (N, n) 单元-材料密度矩阵
+    dJ: (N, n) 目标函数灵敏度
+    dvc: (C, N, n) 约束灵敏度
+    ft: 字典，含'H'（N×N邻域稀疏矩阵）和'Hs'（N×1邻域大小，H每行的和）
+    alpha = 0.8  # 空棋盘格抑制系数（可根据需求调整）    动态平滑强度因子W_i（越大则平滑越强）
+    beta = 0.7   # 填充棋盘格保留系数（可根据需求调整）    动态平滑强度因子W_i（越大则平滑越强）
+    """
+    N, n = rho.shape
+    H = ft['H']       # 从ft提取邻域矩阵（与原有逻辑一致）
+    Hs = ft['Hs']     # 从ft提取邻域大小（H每行的和，用于归一化）
+    Hs = Hs[:, None]  # 扩展为(N,1)，适配广播
+
+    # 1. 计算单元总材料密度（solid占比）和void占比
+    total_material = jnp.sum(rho, axis=1, keepdims=True)  # (N,1)：sum(rho_i,k)
+    void_ratio = 1 - total_material                       # (N,1)：void占比
+
+    # 2. 计算V_i（局部void参与度：邻域内平均void占比）
+    # 复用ft['H']和ft['Hs']，与原有过滤的邻域定义保持一致
+    V = (H @ void_ratio) / jnp.maximum(1e-6, Hs)  # (N,1)：V_i越大，空棋盘格风险越高
+
+    # 3. 计算D_i（材料有序性：邻域内材料分布的有序程度）
+    # 归一化单元内材料占比（避免total_material=0导致的除零）
+    rho_norm = rho / jnp.maximum(1e-6, total_material)  # (N,n)：单元内材料占比归一化
+    # 计算材料分布熵（无序度），熵越低越有序
+    entropy = -jnp.sum(rho_norm * jnp.log(jnp.maximum(1e-12, rho_norm)), axis=1, keepdims=True)  # (N,1)
+    # 有序性指标（1为完全有序，0为完全无序）
+    D = 1 - (entropy / jnp.log(n + 1e-6))  # +1e-6避免n=1时log(1)=0导致的除零
+
+    # 4. 动态平滑强度因子W_i（越大则平滑越强）
+    # alpha = 0.8  # 空棋盘格抑制系数（可根据需求调整）
+    # beta = 0.7   # 填充棋盘格保留系数（可根据需求调整）
+    W = alpha * V + (1 - beta * D)  # (N,1)：融合V和D的动态权重
+    W = W / jnp.maximum(1e-6, jnp.max(W))  # 归一化到[0,1]，避免数值波动
+
+    # 5. 目标函数灵敏度过滤（复用原有H和Hs，融入动态权重W）
+    # 加权灵敏度 = 灵敏度 * 动态权重W（W大则增强平滑）
+    weighted_dJ = (rho * dJ) / jnp.maximum(1e-3, rho) * W  # 保留原有预处理逻辑，叠加W
+    dJ_tilde = H @ (weighted_dJ / Hs)  # 与原有H@(...)结构一致，融入W
+
+    # 6. 约束灵敏度过滤（适配多约束维度，保持与原有维度处理一致）
+    # 扩展rho和W的维度，匹配dvc的(C,N,n)
+    rho_expanded = rho[None, :, :]  # (1,N,n)
+    W_expanded = W[None, :, :]      # (1,N,1)
+    # 加权约束灵敏度 = 约束灵敏度 * 动态权重W
+    weighted_dvc = (rho_expanded * dvc) / jnp.maximum(1e-3, rho_expanded) * W_expanded
+    dvc_tilde = H[None, :, :] @ (weighted_dvc / Hs[None, :, :])  # 与原有H[None,...]结构一致
+
+    return dJ_tilde, dvc_tilde
+
+
+def applySensitivityFilter_void(ft, rho, dJ, dvc):
+    """
+    适配现有代码格式的敏度滤波器：仅抑制空棋盘格（无强制void阈值，兼容后处理）
+    形参/矩阵运算/维度逻辑与原有代码完全一致，仅新增动态权重抑制空棋盘格
+    """
+    # 1. 提取过滤核心参数（与原有代码一致）
+    H = ft['H']
+    Hs = ft['Hs']
+    # 2. 计算void参与度（核心：识别空棋盘格高发区，不强制阈值）
+    total_material = jnp.sum(rho, axis=1, keepdims=True)  # (N,1)：单元总实体占比
+    void_ratio = 1 - total_material                       # (N,1)：void占比（无强制，仅量化）
+    V = (H @ void_ratio) / jnp.maximum(1e-6, Hs[:, None]) # (N,1)：局部void参与度（邻域平均）
+    W = 1.0 * V                                           # (N,1)：动态平滑权重（alpha=1.0，可调整）
+    W = jnp.clip(W, 0.0, 1.0)                             # 限制权重范围，避免数值异常
+    
+    # 3. 目标函数灵敏度过滤（完全复用原有矩阵运算结构，仅叠加动态权重W）
+    dJ = H @ (rho*dJ/jnp.maximum(1e-3, rho) * W / Hs[:, None])  # 维度：(N,N)@(N,n)->(N,n)
+    
+    # 4. 约束灵敏度过滤（复用原有维度扩展逻辑，叠加W的广播维度）
+    dvc = H[None, :, :] @ (rho[None, :, :]*dvc/jnp.maximum(1e-3, rho[None, :, :]) * W[None, :, :] / Hs[None, :, None])  # 维度：(1,N,N)@(C,N,n)->(C,N,n)
+    
+    return dJ, dvc
+
+
+def applySensitivityFilter_max(ft, rho, dJ, dvc):
+    # ========== 核心参数：记录原始维度（避免硬编码） ==========
+    cells = rho.shape[0]    # 单元数
+    tile_num = rho.shape[1] # tile数（从rho原始形状获取）
+    C = dvc.shape[0]        # 约束数（从dvc原始形状获取）
+
+    # ========== dJ逻辑：保留主导tile平滑+恢复tile维度 ==========
+    # 1. 计算每个单元概率最大的tile值和索引（核心逻辑不变）
+    rho_max = np.max(rho, axis=-1)[:, None]  # (cells, 1)：单元级最大tile概率
+    idx_rho_max = np.argmax(rho, axis=-1, keepdims=True)  # (cells, 1)：概率最大的tile索引
+    
+    # 2. 取概率最大tile对应的dJ值（核心逻辑不变）
+    dJ_rho_max = np.take_along_axis(dJ, idx_rho_max, axis=-1)  # (cells, 1)：dJ[单元, 概率最大tile]
+    
+    # 3. 计算主导tile的平滑结果（核心逻辑不变）
+    dJ_smooth_core = ft['H'] @ (rho_max * dJ_rho_max / np.maximum(1e-3, rho_max) / ft['Hs'][:, None])  # (cells, 1)
+    
+    # 4. 关键修复：将(cells,1)广播回(cells, tile)，恢复原维度
+    dJ = np.broadcast_to(dJ_smooth_core, (cells, tile_num))  # (cells, tile)
+
+    # ========== dvc逻辑：匹配dJ+恢复tile维度 ==========
+    # 1. 复用单元概率最大的tile索引（核心逻辑不变）
+    idx_rho_max_dvc = idx_rho_max[None, :, :]  # (1, cells, 1)
+    
+    # 2. 取每个单元“概率最大tile”对应的dvc值（核心逻辑不变）
+    dvc_rho_max = np.take_along_axis(dvc, idx_rho_max_dvc, axis=-1)  # (C, cells, 1)
+    
+    # 3. 复用单元级最大tile概率（核心逻辑不变）
+    rho_max_dvc = rho_max[None, :, :]  # (1, cells, 1)
+    
+    # 4. 计算主导tile的平滑结果（核心逻辑不变）
+    dvc_smooth_core = ft['H'][None, :, :] @ (rho_max_dvc * dvc_rho_max / np.maximum(1e-3, rho_max_dvc) / ft['Hs'][None, :, None])  # (C, cells, 1)
+    
+    # 5. 关键修复：将(C, cells,1)广播回(C, cells, tile)，恢复原维度
+    dvc = np.broadcast_to(dvc_smooth_core, (C, cells, tile_num))  # (C, cells, tile)
+
+    return dJ, dvc
+
+
+
 
 #%% Optimizer
 class MMA:
@@ -572,7 +690,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     # Move limit is an important parameter that affects TO result; default can be 0.2
     mma.setMoveLimit(optimizationParams['movelimit']) 
     allstart = time.time()
-
+    key = jax.random.PRNGKey(0)
     while loop < optimizationParams['maxIters']:
         start_time=time.time()
         loop = loop + 1
@@ -587,10 +705,10 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print("rho 均值：", jnp.mean(rho))
         print("rho 最小值：", jnp.min(rho))
         print("rho 最大值：", jnp.max(rho))
-
+        key, subkey = jax.random.split(key)
         def filter_chain(rho,WFC,ft,loop):
             # rho = applyDensityFilter(ft, rho)
-            rho,_,_=WFC(rho.reshape(-1,tileNum))
+            rho,_,_=WFC(rho.reshape(-1,tileNum),subkey)
             rho = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # rho = jax.nn.softmax(rho,axis=-1)
             # rho = heaviside(rho,2^(loop//10))
@@ -643,8 +761,20 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         if sensitivity_filtering=="multi":
             dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
             print(f"sensitivity filtering: multi")
-
         
+        if sensitivity_filtering=="chess":
+            dJ, dvc = applySensitivityFilter_chess(ft, rho_f, dJ, dvc)
+            print(f"sensitivity filtering: chess")
+        
+        if sensitivity_filtering=="void":
+            dJ, dvc = applySensitivityFilter_void(ft, rho_f, dJ, dvc)
+            print(f"sensitivity filtering: void")
+
+        if sensitivity_filtering=="max":
+            dJ, dvc = applySensitivityFilter_max(ft, rho_f, dJ, dvc)
+            print(f"sensitivity filtering: max")
+
+
 
         print(f"dJ.shape: {dJ.shape}\ndvc.shape: {dvc.shape}")
 
@@ -707,7 +837,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         print(f"MMA took {time_elapsed} [s]")
 
         print(f'Iter {loop:d} end; J {J:.5f}; \nconstraint: \n{vc}')
-        print(f"epoch spends: {time.time()-start_time} [s]")
+        print(f"epoch {loop} spends: {time.time()-start_time} [s]")
         print("****************************************************\n")
         J_prev = J
         rho_prev = rho.copy()
