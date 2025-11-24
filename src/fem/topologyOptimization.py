@@ -173,10 +173,10 @@ ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
 # Lx, Ly, Lz = 60., 10., 30.
 # Nx, Ny, Nz = 60, 10, 30
-# Lx, Ly, Lz = 5., 2., 5.
-# Nx, Ny, Nz = 5, 2, 5
-Lx, Ly, Lz = 40., 5., 20. 
-Nx, Ny, Nz = 40, 5, 20
+Lx, Ly, Lz = 5., 2., 5.
+Nx, Ny, Nz = 5, 2, 5
+# Lx, Ly, Lz = 40., 5., 20. 
+# Nx, Ny, Nz = 40, 5, 20
 create_directory_if_not_exists("data/msh")
 mshname=f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}.msh"
 if not os.path.exists(f"data/msh/{mshname}"):
@@ -302,12 +302,12 @@ tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTx0',
 
 from src.WFC.WFCFilter_JAX_Sigma_tau_softmax import preprocess_compatibility,waveFunctionCollapse,preprocess_adjacency,compute_cell_centers
 tileHandler.constantlize_compatibility()
-# tileHandler._compatibility = preprocess_compatibility(tileHandler.compatibility)
+tileHandler._compatibility = preprocess_compatibility(tileHandler.compatibility)
 print(tileHandler)
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
-p=[4,3,3]
-# p=[4,3,3,3]
+# p=[4,3,3]
+p=[4,3,3,3]
 assert len(p)==len(tileHandler.typeList),f"p length {len(p)} must equal to tile types num {len(tileHandler.typeList)}"
 
 
