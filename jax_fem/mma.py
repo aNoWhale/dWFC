@@ -695,7 +695,6 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         start_time=time.time()
         loop = loop + 1
         info={}
-        np.save(f"data/npy/{loop}",rho)
         # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
         alpha = 1
         
@@ -732,7 +731,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         rfmean_last = rfmean
         rfmin_last = rfmin
         rfmax_last = rfmax
-
+        np.save(f"data/npy/{loop}",rho_f)
         J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
         vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
         print(f"dJ_drho_f.shape: {dJ_drho_f.shape}\ndvc_drho_f.shape: {dvc_drho_f.shape}")

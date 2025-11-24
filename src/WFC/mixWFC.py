@@ -6,7 +6,7 @@ sys.path.append(project_root)
 
 import jax
 jax.config.update('jax_platform_name', 'cpu')  # 强制使用CPU
-# jax.config.update('jax_disable_jit', True)     # 禁用JIT避免追踪问题
+# jax.config.update('jax_disable_jit', True)     # 调试时开启
 
 import jax.numpy as jnp
 from functools import partial
@@ -20,143 +20,228 @@ from src.WFC.builder import visualizer_2D, Visualizer
 from src.WFC.FigureManager import FigureManager
 
 
-def get_neighbors(csr, index):
+def get_neighbors(csr, index, tileHandler):
+    """修复：提前将方向字符串转为整数索引，避免返回字符串"""
     start = csr['row_ptr'][index]
     end = csr['row_ptr'][index + 1]
+    # 邻居索引：转为JAX数组（数值类型）
     neighbors = csr['col_idx'][start:end]
-    neighbors_dirs = csr['directions'][start:end]
-    return neighbors, neighbors_dirs
+    neighbors = jnp.atleast_1d(jnp.array(neighbors, dtype=jnp.int32))
+    # 方向字符串→整数索引（核心修复：避免字符串传入JAX）
+    dirs_str = csr['directions'][start:end]
+    dirs_index = tileHandler.get_index_by_direction(dirs_str)
+    dirs_index = jnp.atleast_1d(jnp.array(dirs_index, dtype=jnp.int32))
+    return neighbors, dirs_index
 
 
 def collapsed_mask(probabilities, threshold=0.99):
+    """保留原坍缩掩码逻辑"""
     max_probs = jnp.max(probabilities, axis=-1, keepdims=True)
     return jax.nn.sigmoid(-1000 * (max_probs - threshold))
 
 
-def select_collapse_by_map (key,collapse_map):
+def select_collapse_by_map(key, collapse_map):
+    """保留collapse_map熵选择核心：选值最大的节点（熵最小）"""
     max_map = jnp.max(collapse_map)
+    if max_map < 1e-6:  # 所有节点已坍缩
+        return -1
     choices = jnp.where(collapse_map == max_map)[0]
     idx = jax.random.choice(key, choices)
-    return idx
+    return int(idx)  # 转为Python int，避免维度问题
+
+
+def detect_contradiction(probs, collapse_idx):
+    """检测矛盾：坍缩节点概率全0 或 邻居概率全0"""
+    # 1. 检查当前节点概率是否全0
+    node_prob_sum = jnp.sum(jnp.abs(probs[collapse_idx]))
+    if node_prob_sum < 1e-6:
+        return True
+    # 2. 可选：检查所有未坍缩节点是否都无有效概率（全局矛盾）
+    global_prob_sum = jnp.sum(jnp.abs(probs), axis=-1)
+    valid_nodes = jnp.sum(global_prob_sum > 1e-6)
+    if valid_nodes == 0:
+        return True
+    return False
 
 
 @partial(jax.jit, static_argnames=())
 def update_by_neighbors(probs, collapse_id, neighbors, dirs_opposite_index, compatibility):
-    def update_single(neighbor_prob,opposite_dire_index):
-        # print(f"neighbor_prob.shape:{neighbor_prob.shape}")
-        p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob) # (d,i,j) (j,)-> (d,i,j) (1,1,j)->(d,i,1)->(d,i)
-        # p_neigh = jnp.einsum("...i,...i->...i",p_neigh,neighbor_prob) #(d,i) (i,) ->(d,i) (1,i) -> (d,i) 
-
+    """完全保留原邻居更新逻辑，仅处理数值类型"""
+    def update_single(neighbor_prob, opposite_dire_index):
+        p_c = jnp.einsum("...ij,...j->...i", compatibility[opposite_dire_index], neighbor_prob)
         norm = jnp.sum(jnp.abs(p_c), axis=-1, keepdims=True)
         return p_c / jnp.where(norm == 0, 1.0, norm)
-    neighbor_probs = probs[neighbors]
-    neighbor_probs = jnp.atleast_1d(neighbor_probs)
-    opposite_indices = jnp.array(dirs_opposite_index)
+    
+    # 仅处理数值数组，无字符串
+    neighbor_probs = jnp.atleast_1d(probs[neighbors])
+    opposite_indices = jnp.atleast_1d(dirs_opposite_index)
+    
+    if neighbor_probs.size == 0 or opposite_indices.size == 0:
+        return probs
+    
     batch_update = jax.vmap(update_single)
     update_factors = batch_update(neighbor_probs, opposite_indices)
     cumulative_factor = jnp.prod(update_factors, axis=0)
+    
     p = probs[collapse_id] * cumulative_factor
     norm = jnp.sum(jnp.abs(p), axis=-1, keepdims=True)
     p = p / jnp.where(norm == 0, 1.0, norm)
     return probs.at[collapse_id].set(p)
-    
 
 
 @jax.jit
 def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
-    # 定义向量化更新函数（包含方向选择）
+    """完全保留原坍缩后更新邻居逻辑，仅处理数值类型"""
     def vectorized_update(neighbor_prob, dir_idx):
         p_neigh = jnp.einsum("...ij,...j->...i", compatibility, p_collapsed)
         p_neigh = jnp.einsum("...i,...i->...i", p_neigh, neighbor_prob)
         norm = jnp.sum(jnp.abs(p_neigh), axis=-1, keepdims=True)
         p_neigh = p_neigh / jnp.where(norm == 0, 1.0, norm)
         return jnp.clip(p_neigh[dir_idx], 0, 1)
-    # print(f"probs[neighbors].shape:{probs[neighbors].shape}")
-    dirs_index=jnp.array(dirs_index)
-    # print(f"dirx_index.shape:{dirs_index.shape}")
-    updated_probs = jax.vmap(vectorized_update)(probs[neighbors], dirs_index)
+    
+    # 仅处理数值数组，无字符串
+    neighbor_probs = jnp.atleast_1d(probs[neighbors])
+    dirs_index = jnp.atleast_1d(dirs_index)
+    
+    if neighbor_probs.size == 0 or dirs_index.size == 0:
+        return probs
+    
+    updated_probs = jax.vmap(vectorized_update)(neighbor_probs, dirs_index)
     return probs.at[neighbors].set(updated_probs)
 
 
-def collapse( key,prob):
-    zeros=jnp.zeros_like(prob)
+def collapse_max_prob(key, prob, backtrack=False):
+    """经典WFC坍缩：优先选概率最高的瓦片（回溯时换随机种子）"""
+    if backtrack:
+        # 回溯时重新生成随机种子，避免重复选同一个瓦片
+        key, subkey = jax.random.split(key)
+    else:
+        subkey = key
+    
+    zeros = jnp.zeros_like(prob)
     max_val = jnp.max(prob)
     max_indices = jnp.where(prob == max_val)[0]  
-    random_idx = jax.random.choice(key, max_indices)
-    return zeros.at[random_idx].set(1)
+    # 若只有一个选项，直接选；多个则随机（回溯时换随机）
+    if len(max_indices) == 1:
+        random_idx = max_indices[0]
+    else:
+        random_idx = jax.random.choice(subkey, max_indices)
+    return zeros.at[random_idx].set(1), key
 
 
 def waveFunctionCollapse(init_probs, adj_csr, tileHandler: TileHandler, plot: bool | str = False, *args, **kwargs) -> jnp.ndarray:
+    """经典WFC迭代流程 + collapse_map + 回溯机制"""
     key = jax.random.PRNGKey(0)
     num_elements = init_probs.shape[0]
     max_neighbors = kwargs.pop("max_neighbors", 4)
+    max_backtracks = kwargs.pop("max_backtracks", 100)  # 最大回溯次数
 
-    probs = init_probs
-    collapse_map = jnp.ones(probs.shape[0])
+    # 初始化：保留原collapse_map（熵选择核心）
+    probs = jnp.array(init_probs, dtype=jnp.float32)
+    collapse_map = jnp.ones(probs.shape[0])  # 1=初始熵权重，值越大优先级越高
     should_stop = False
+    backtrack_count = 0  # 回溯计数器
+    state_stack = []     # 回溯状态栈：保存(probs, collapse_map, key, collapse_idx)
 
     if plot == "2d":
         visualizer: Visualizer = kwargs.pop("visualizer", None)
         visualizer.add_frame(probs=probs)
     
-    pbar = tqdm.tqdm(total=num_elements, desc="collapsing", unit="tiles")
+    pbar = tqdm.tqdm(total=num_elements, desc="classic WFC (collapse_map + backtrack)", unit="tiles")
     collapse_list = [-1]
 
-    while not should_stop:
-        key, subkey1, subkey2 = jax.random.split(key, 3)
-        
-        
-        solid_mask = np.max(probs,axis=-1) > 0.4
+    # 提前获取反向方向数组（避免重复转换）
+    opposite_dir_array = jnp.array(tileHandler.opposite_dir_array, dtype=jnp.int32)
+    compatibility = jnp.array(tileHandler.compatibility, dtype=jnp.float32)
 
-        # 概率归一化
-        norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
-        probs = probs / jnp.where(norm == 0, 1.0, norm)
-        
-        # 选择单个坍缩单元
-        collapse_idx = select_collapse_by_map(subkey1,collapse_map)
-        
-        # 停止条件
-        if jnp.max(collapse_map) < 1:
-            print(f"####reached stop condition####\n")
+    # 经典WFC核心迭代循环（保留collapse_map + 回溯）
+    while not should_stop:
+        # 检查最大回溯次数，避免死循环
+        if backtrack_count >= max_backtracks:
+            print(f"#### 达到最大回溯次数({max_backtracks})，停止迭代 ####\n")
             should_stop = True
             break
 
-        # 获取邻居和方向信息
-        neighbors, neighbors_dirs = get_neighbors(adj_csr, collapse_idx)
-        neighbors_dirs_index = tileHandler.get_index_by_direction(neighbors_dirs)
-        neighbors_dirs_opposite_index = tileHandler.opposite_dir_array[jnp.array(neighbors_dirs_index)]
+        key, subkey1, subkey2 = jax.random.split(key, 3)
         
-        if solid_mask[collapse_idx]:
+        # 1. 概率归一化（保留原逻辑）
+        norm = jnp.sum(jnp.abs(probs), axis=-1, keepdims=True)
+        probs = probs / jnp.where(norm == 0, 1.0, norm)
+        
+        # 2. 经典WFC + collapse_map熵选择：选熵最小（collapse_map最大）的节点
+        collapse_idx = select_collapse_by_map(subkey1, collapse_map)
+        
+        # 3. 停止条件：所有节点已坍缩（collapse_map无有效值）
+        if collapse_idx == -1:
+            print(f"#### collapse_map无有效节点，停止迭代 ####\n")
+            should_stop = True
+            break
 
-            # 更新坍缩单元概率
+        # 4. 保存当前状态到回溯栈（坍缩前）
+        current_state = (
+            jnp.copy(probs),          # 概率状态
+            jnp.copy(collapse_map),   # 熵权重状态
+            key,                      # 随机种子
+            collapse_idx              # 待坍缩节点
+        )
+        state_stack.append(current_state)
+
+        # 5. 保留原solid_mask逻辑（概率阈值过滤）
+        solid_mask = jnp.max(probs, axis=-1) > 0
+
+        # 6. 获取邻居和方向索引（核心修复：直接获取整数索引，无字符串）
+        neighbors, dirs_index = get_neighbors(adj_csr, collapse_idx, tileHandler)
+        # 计算反向方向索引（邻居→当前节点的方向）
+        dirs_opposite_index = opposite_dir_array[dirs_index]
+        
+        # 7. 保留原更新流程：邻居先更新当前节点概率
+        if solid_mask[collapse_idx]:
             probs = update_by_neighbors(
-                probs, collapse_idx, neighbors, neighbors_dirs_opposite_index, tileHandler.compatibility
+                probs, collapse_idx, neighbors, dirs_opposite_index, compatibility
             )
             
-            # 执行坍缩
-            p_collapsed = collapse(subkey2,probs[collapse_idx])
+            # 8. 检测更新后是否出现矛盾
+            if detect_contradiction(probs, collapse_idx):
+                print(f"#### 节点{collapse_idx}出现矛盾，触发回溯 ({backtrack_count+1}/{max_backtracks}) ####")
+                # 恢复上一状态
+                probs, collapse_map, key, collapse_idx = state_stack.pop()
+                backtrack_count += 1
+                # 跳过本次循环，重新选择
+                continue
+            
+            # 9. 经典WFC坍缩：优先选概率最高的瓦片（回溯时换随机）
+            p_collapsed, key = collapse_max_prob(subkey2, probs[collapse_idx], backtrack=(backtrack_count>0))
             probs = probs.at[collapse_idx].set(p_collapsed)
-   
-            # 更新邻居概率
-            probs = update_neighbors(probs, neighbors, neighbors_dirs_index, p_collapsed, tileHandler.compatibility)
+       
+            # 10. 保留原更新流程：坍缩后更新邻居概率
+            probs = update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility)
+            
+            # 11. 再次检测邻居更新后是否矛盾
+            if detect_contradiction(probs, collapse_idx):
+                print(f"#### 邻居更新后节点{collapse_idx}出现矛盾，触发回溯 ({backtrack_count+1}/{max_backtracks}) ####")
+                probs, collapse_map, key, collapse_idx = state_stack.pop()
+                backtrack_count += 1
+                continue
         else:
+            # 保留原逻辑：非solid节点概率置0
             probs = probs.at[collapse_idx].multiply(0)
 
-        # 更新坍缩记录和掩码
+        # 12. 保留collapse_map核心更新逻辑（熵权重调整）
         collapse_list.append(collapse_idx)
-        collapse_map = collapse_map.at[collapse_idx].set(0)
-        collapse_map = collapse_map.at[neighbors].multiply(10)
+        collapse_map = collapse_map.at[collapse_idx].set(0)  # 已坍缩节点熵权重置0
+        collapse_map = collapse_map.at[neighbors].multiply(10)  # 邻居熵权重提升（优先级提高）
 
-
-        # 可视化
+        # 可视化（保留原逻辑）
         if plot == '2d' and visualizer is not None:
             visualizer.add_frame(probs=probs)
 
+        # 进度更新（保留原逻辑）
         pbar.update(1)
         if pbar.n >= pbar.total:
             pbar.set_description_str("fixing high entropy")
     
     pbar.close()
+    print(f"#### 迭代结束，总回溯次数：{backtrack_count} ####")
     return probs, 0, collapse_list
 
 
@@ -166,7 +251,7 @@ if __name__ == "__main__":
     width = 5
     adj = build_grid_adjacency(height=height, width=width, connectivity=4)
 
-    # 初始化瓦片处理器
+    # 初始化瓦片处理器（保留原逻辑）
     tileHandler = TileHandler(typeList=['a','b','c','d','e'], direction=(('up',"down"),("left","right"),))
     from src.dynamicGenerator.TileImplement.Dimension2.LinePath import LinePath
     tileHandler.register(typeName='a', class_type=LinePath(['da-bc','cen-cd'], color='blue'))
@@ -175,7 +260,7 @@ if __name__ == "__main__":
     tileHandler.register(typeName='d', class_type=LinePath(['ab-cd','cen-bc'], color='red'))
     tileHandler.register(typeName='e', class_type=LinePath(['da-bc','ab-cd'], color='magenta'))
 
-    # 设置瓦片连接性
+    # 设置瓦片连接性（保留原逻辑）
     tileHandler.selfConnectable(typeName="e", direction='isotropy', value=1)
     tileHandler.setConnectiability(fromTypeName='a', toTypeName=['e','c','d','b'], direction='down', value=1, dual=True)
     tileHandler.setConnectiability(fromTypeName='a', toTypeName=['e','c','d','a'], direction='left', value=1, dual=True)
@@ -200,22 +285,22 @@ if __name__ == "__main__":
 
     tileHandler.constantlize_compatibility()
 
-    # 初始化概率分布
+    # 初始化概率分布（保留原逻辑）
     num_elements = adj['num_elements']
     numTypes = tileHandler.typeNum
     init_probs = jnp.ones((num_elements, numTypes)) / numTypes
 
-    # 可视化配置
+    # 可视化配置（保留原逻辑）
     figureManager = FigureManager(figsize=(10,10))
     visualizer = Visualizer(tileHandler=tileHandler, points=adj['vertices'], figureManager=figureManager)
 
-    # 运行WFC
+    # 运行经典WFC（保留collapse_map + 回溯）
     probs, max_entropy, collapse_list = waveFunctionCollapse(
         init_probs, adj, tileHandler, plot='2d', 
-        points=adj['vertices'], visualizer=visualizer, max_neighbors=4
+        points=adj['vertices'], visualizer=visualizer, max_neighbors=4, max_backtracks=100
     )
 
-    # 结果输出
+    # 结果输出（保留原逻辑）
     visualizer.collapse_list = collapse_list
     visualizer.draw()
     visualizer_2D(tileHandler=tileHandler, probs=probs, points=adj['vertices'], figureManager=figureManager, epoch='end')

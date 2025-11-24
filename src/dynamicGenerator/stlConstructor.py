@@ -4,7 +4,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 
-from src.WFC.TileHandler import TileHandler
+from src.WFC.TileHandler_JAX import TileHandler
 from src.dynamicGenerator.meshTools import generate_mesh_from_stp
 from jax_fem.generate_mesh import Mesh
 
@@ -28,12 +28,15 @@ def export_cell_structures_stl(mesh: Mesh, rho: np.ndarray, tileHandle: TileHand
     # mask = np.sum(rho, axis=-1) > threshold
     cell_type_ids = np.argmax(rho, axis=-1, keepdims=False)
     cell_type_ids = np.where(mask, cell_type_ids, -1)
+    if "void" in tileHandle.typeList:
+        void_type_id = tileHandle.typeList.index("void")
+        cell_type_ids = np.where(cell_type_ids == void_type_id, -1, cell_type_ids)
 
     # 按要求创建复合形状（核心修改部分）
     total_compound = TopoDS_Compound()
     total_builder = BRep_Builder()
     total_builder.MakeCompound(total_compound)
-
+    n=0
     # 遍历所有单元，添加到复合形状
     for i, (cell_indices, type_id) in enumerate(tqdm.tqdm(zip(cells, cell_type_ids), 
                                                           total=len(cells), desc="Constructing STL")):
@@ -46,7 +49,7 @@ def export_cell_structures_stl(mesh: Mesh, rho: np.ndarray, tileHandle: TileHand
             shape.Checked(True)
             # 添加形状到复合对象
             total_builder.Add(total_compound, shape)
-
+            n+=1
     # 对复合形状进行网格化（一次性处理所有单元，加速关键）
     mesher = BRepMesh_IncrementalMesh(total_compound, deflection)
     mesher.Perform()
@@ -58,7 +61,7 @@ def export_cell_structures_stl(mesh: Mesh, rho: np.ndarray, tileHandle: TileHand
     status = stl_writer.Write(total_compound, output_filename)
     if not status:
         raise RuntimeError(f"STL文件写入失败: {output_filename}")
-    print(f"成功导出 {np.sum(mask)} 个单元到STL文件: {output_filename}")
+    print(f"成功导出 {n} 个单元到STL文件: {output_filename}")
 
 
 def create_directory_if_not_exists(directory_path):
@@ -71,7 +74,7 @@ def create_directory_if_not_exists(directory_path):
 
 if __name__ == "__main__":
     from src.dynamicGenerator.TileImplement.CubeSTP import STPtile
-
+    from src.dynamicGenerator.TileImplement.voidCube import Voidtile
 
     # ZCYS = STPtile("data/stp/ZCYS.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
     # ZCYSx0 = STPtile("data/stp/ZCYSx0.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
@@ -95,8 +98,38 @@ if __name__ == "__main__":
                                           0.01,0.02,0.01,
                                           0.,0.01,0.,
                                           0.02,0.02,0.02))
+    # void = Voidtile()
+    # vv = STPtile("data/stp/ZCYS.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
+    # tileHandler = TileHandler(typeList=['pp','TTx0','TTx180','vv'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    # tileHandler = TileHandler(typeList=['pp', 'TTx0', 'TTx180','vv'], 
+    #                       direction=(('back',"front"),("left","right"),("top","bottom")),
+    #                       direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    # tileHandler.selfConnectable(typeName=['pp','TTx0', 'TTx180','vv'],value=1)
+    # tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='vv',toTypeName=[ 'pp','TTx0','TTx180'],direction="isotropy",value=1,dual=True)
+    # tileHandler.register(['pp','TTx0','TTx180','vv'],[pp,TTx0,TTx180,vv])
+    # tileHandler.constantlize_compatibility()
+
+    # void = Voidtile()
     tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    tileHandler = TileHandler(typeList=['pp', 'TTx0', 'TTx180'], 
+                          direction=(('back',"front"),("left","right"),("top","bottom")),
+                          direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    tileHandler.selfConnectable(typeName=['pp','TTx0', 'TTx180'],value=1)
+    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
+    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
+    tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=0,dual=True)
+    tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
     tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
+    tileHandler.constantlize_compatibility()
+
 
     # pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
     #                               0.01,0.02,0.01,
@@ -111,6 +144,8 @@ if __name__ == "__main__":
     cell_type = get_meshio_cell_type(ele_type)
     Lx, Ly, Lz = 40., 5., 20.
     Nx, Ny, Nz = 40, 5, 20
+    # Lx, Ly, Lz = 20., 5., 10.
+    # Nx, Ny, Nz = 20, 5, 10
     create_directory_if_not_exists("data/msh")
     mshname = f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}.msh"
     if not os.path.exists(f"data/msh/{mshname}"):
@@ -119,15 +154,30 @@ if __name__ == "__main__":
     else:
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
-    pathname= r'vtkf++TTx0TTx180nofilter1.8p444simpWFCsigmanoSM非常好形状'
-    rho_oped = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/更新的/{pathname}/npy/rho_oped.npy").reshape(-1, tileHandler.typeNum)
-    wfcEnd = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/更新的/{pathname}/npy/wfc_classical_end.npy").reshape(-1, tileHandler.typeNum)
+    prefix="可负/"
+    pathname= 'vtkf++weakTTx0TTx180voidcommon1.2p4333'
+    # rho_oped = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/npy/100.npy").reshape(-1, tileHandler.typeNum+1)
+    # rho_oped = rho_oped[...,:3].reshape(-1,tileHandler.typeNum)
+    # wfcEnd = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/npy/wfc_classical_end.npy").reshape(-1, tileHandler.typeNum)
+    from jax_fem.utils import extract_theta_from_vtu
+    vtkinfo = extract_theta_from_vtu(f'/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/sol_100.vtu')
+    rho_oped=[]
+    for i in range(tileHandler.typeNum):
+        rho_oped.append(vtkinfo[f'theta{i}'][...,None])
+    rho_oped = np.concatenate(rho_oped,axis=-1)
+    rho_oped = rho_oped.reshape(-1,tileHandler.typeNum)
+    from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
+    adj_csr = build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
+    from src.WFC.mixWFC import waveFunctionCollapse as classicalWFC
+    wfcEnd,_,_=classicalWFC(init_probs=rho_oped,adj_csr=adj_csr,tileHandler=tileHandler)
+    print(f"wfc mean:{wfcEnd.mean()}")
+    mask=np.max(rho_oped,axis=-1,keepdims=False)>0.4
     # 导出为STL（加速效果：比STP快10-20倍）
     export_cell_structures_stl(
         mesh=mesh,
         rho=wfcEnd,
         tileHandle=tileHandler,
-        output_filename=f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/更新的/{pathname}/{pathname}.stl",
-        mask=np.max(rho_oped,axis=-1,keepdims=False)>0.5,
+        output_filename=f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/{pathname}.stl",
+        mask=mask,
         deflection=0.5  # 可调整：0.1（高精度慢）→ 1.0（低精度快）
     )
