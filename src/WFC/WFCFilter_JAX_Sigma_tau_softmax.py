@@ -127,23 +127,27 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     # jax.debug.print("tau_sum_factors:\n{a}",a=tau_sum_factors)
     
     # 7. 聚合所有邻居贡献（关键：axis=0 → 结果为(n_tiles,)）
+    # jax.debug.print("tau_sum_factors shape: {a}",a=tau_sum_factors.shape)
+    # jax.debug.print("tau_sum_factors: {a}",a=tau_sum_factors)
+
     sum_contrib = jnp.sum(tau_sum_factors, axis=0)  # (n_tiles,)
     # jax.debug.print("sum_contrib:\n{a}",a=sum_contrib)
-    sum_contrib = jnp.clip(sum_contrib, eps, None)
+    # sum_contrib = jnp.clip(sum_contrib, eps, None)
     
     # 8. 更新当前单元概率（维度匹配：n_tiles,）
     p_updated = init_probs[collapse_idx] * sum_contrib  # (n_tiles,)
     # p_updated = p_updated / jnp.sum(p_updated,axis=-1)  # 归一化
-    
+    # jax.debug.print("p_updated\n{a}",a=p_updated)
     # 混合初始概率
     p_updated = (1 - alpha) * p_updated + alpha * init_probs[collapse_idx]
-    p_updated = p_updated / jnp.sum(p_updated)  # 再次归一化
-    p_updated = jnp.clip(p_updated, eps, 1.0)
+    # p_updated = p_updated / jnp.sum(p_updated)  # 再次归一化
+    # p_updated = jnp.clip(p_updated, eps, 1.0)
     
     # 9. 局部软更新（维度：n_cells × n_tiles）
     updated_probs = init_probs * (1 - collapse_mask) + p_updated * collapse_mask
-    updated_probs = updated_probs / jnp.sum(updated_probs, axis=1)[:, None]
-    updated_probs = jnp.clip(updated_probs, eps, 1.0) #有待商榷
+    # updated_probs = updated_probs / jnp.sum(updated_probs, axis=1)[:, None]
+    # updated_probs = jnp.clip(updated_probs, eps, 1.0) #有待商榷
+    # jax.debug.print("updated_probs:\n{a}",a=updated_probs)
     return updated_probs
 
 @partial(jax.jit)
@@ -178,9 +182,9 @@ def single_update_neighbors(collapse_idx, step1_probs, A, D, compatibility, tau=
     w = neighbor_mask_broadcast  # (n_cells, 1)
     p_prev = step1_probs  # (n_cells, n_tiles)
     p_updated = (1 - w) * p_prev + w * tau_contrib
-    p_updated = p_updated / jnp.sum(p_updated, axis=1)[:, None]
-    p_updated = jnp.clip(p_updated, eps, 1.0) #有待商榷
-    
+    # p_updated = p_updated / jnp.sum(p_updated, axis=1)[:, None]
+    # p_updated = jnp.clip(p_updated, eps, 1.0) #有待商榷
+    # jax.debug.print("p_updated neighbors:\n{a}",a=p_updated)
     return p_updated
 
 
@@ -239,14 +243,14 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     # cell_centers[collapse_indices] → (n_cells, n_cells, 3)，每个坍缩中心对应的所有cell坐标
     distances = jnp.linalg.norm(
         cell_centers[collapse_indices] - cell_centers,  # 坍缩中心坐标 - 目标cell坐标
-        axis=2,  # 沿坐标维度（3维）计算范数
+        axis=-1,  # 沿坐标维度（3维）计算范数
         ord=1    # L1范数，与spatial_soft_mask保持一致
     )  # 结果：(n_cells, n_cells) → [坍缩中心, 目标cell]的距离
     
     # 3.2 将距离转化为权重（距离越近，权重越高）
     # sigma控制权重衰减速度：sigma越小，近邻权重越集中；越大越均匀
-    sigma_weight = 0.1  
-    distance_weights = jax.nn.softmax(-distances / sigma_weight, axis=0)  # 沿坍缩中心轴归一化，权重和为1
+    sigma_weight = 0.1  #可以再小一点就更hard了，现在会对邻居有微小影响
+    distance_weights = jax.nn.softmax(-distances / sigma_weight, axis=-1)  # 沿坍缩中心轴归一化，权重和为1
     distance_weights = jnp.clip(distance_weights, eps, 1.0)  # 数值稳定
     
     # 3.3 权重扩维适配tile维度（batch_updated_step1是(n_cells, n_cells, n_tiles)）
@@ -257,8 +261,9 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     probs_step1 = jnp.sum(weighted_updates, axis=0)  # (n_cells, n_tiles) → 聚合后
     
     # 3.5 归一化+数值裁剪（保证概率分布合法）
-    probs_step1 = probs_step1 / jnp.sum(probs_step1, axis=-1)[:, None]
-    probs_step1 = jnp.clip(probs_step1, eps, 1.0)
+    # probs_step1 = probs_step1 / jnp.sum(probs_step1, axis=-1)[:, None]
+    # probs_step1 = jnp.clip(probs_step1, eps, 1.0) #或许可以改为-1，1
+    #假设i不能选B(概率-1),BC不兼容，那么j可以选C（-1*-1）
     # ========== 加权求和聚合结束 ==========
 
     # 4. 第二步：批量更新邻居
@@ -274,11 +279,28 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     # final_probs = jnp.mean(batch_updated_step2, axis=0)
     # final_probs = final_probs / jnp.sum(final_probs, axis=1)[:, None]
     # final_probs = jnp.clip(final_probs, eps, 1.0)
-    # === step2加权求和（复用step1的权重） ===
-    weighted_updates_step2 = batch_updated_step2 * weights_expanded  # 复用权重，无需重算
+    # === step2加权求和 ===
+    #权重应该不能复用，因为一个是中心，一个是邻居？
+    # 3.2 将距离转化为权重（距离越近，权重越高）
+    # sigma控制权重衰减速度：sigma越小，近邻权重越集中；越大越均匀
+    # sigma_weight = 0.1  #可以再小一点就更hard了，现在会对邻居有微小影响 使用跟step1一样的
+    # distances_neighbors = distances-1.0
+    # distance_weights_2 = jax.nn.softmax(-(distances_neighbors-1.0) / sigma_weight, axis=-1)  # 沿坍缩中心轴归一化，权重和为1,邻居距离1
+    # distance_weights_2 = jnp.clip(distance_weights_2, eps, 1.0)  # 数值稳定
+    sigma_gauss = 0.3
+    sigma_softmax = 0.1  # 控制softmax的差异放大程度
+    # 1. 计算高斯核（单峰分布，越接近mu权重越高）
+    gauss_kernel = jnp.exp(-((distances - 1.0) **2) / (2 * sigma_gauss**2))
+    # distance_weights_2 = gauss_kernel
+    distance_weights_2 = jax.nn.softmax(gauss_kernel / sigma_softmax, axis=1)
+    distance_weights_2 = jnp.clip(distance_weights_2, eps, 1.0)
+    # jax.debug.print("distance_weights_2.min:\n{a}",a=distance_weights_2.min())
+    # 3.3 权重扩维适配tile维度（batch_updated_step1是(n_cells, n_cells, n_tiles)）
+    weights_expanded_2 = distance_weights_2[:, :, None]  # (n_cells, n_cells, 1)
+    weighted_updates_step2 = batch_updated_step2 * weights_expanded_2  
     final_probs = jnp.sum(weighted_updates_step2, axis=0)
     # 归一化+数值裁剪（保证概率合法）
-    final_probs = final_probs / jnp.sum(final_probs, axis=1)[:, None]
+    # final_probs = final_probs / jnp.sum(final_probs, axis=1)[:, None]
     final_probs = jnp.clip(final_probs, eps, 1.0)
     
     return final_probs, 0, jnp.arange(n_cells)

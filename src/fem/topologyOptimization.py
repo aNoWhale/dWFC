@@ -18,7 +18,7 @@ import meshio
 import jax
 import jax_smi
 jax_smi.initialise_tracking()
-jax.config.update('jax_disable_jit', True)
+# jax.config.update('jax_disable_jit', True)
 jax.config.update("jax_enable_x64", True)
 from functools import partial
 import jax.numpy as np
@@ -173,10 +173,10 @@ ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
 # Lx, Ly, Lz = 60., 10., 30.
 # Nx, Ny, Nz = 60, 10, 30
-Lx, Ly, Lz = 5., 2., 5.
-Nx, Ny, Nz = 5, 2, 5
-# Lx, Ly, Lz = 40., 5., 20. 
-# Nx, Ny, Nz = 40, 5, 20
+# Lx, Ly, Lz = 5., 2., 5.
+# Nx, Ny, Nz = 5, 2, 5
+Lx, Ly, Lz = 40., 5., 20. 
+Nx, Ny, Nz = 40, 5, 20
 create_directory_if_not_exists("data/msh")
 mshname=f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}.msh"
 if not os.path.exists(f"data/msh/{mshname}"):
