@@ -419,8 +419,8 @@ optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sens
 
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)*0.35
-rho_ini = rho_ini.at[:,1].set(0.2)
-rho_ini = rho_ini.at[:,2].set(0.2)
+# rho_ini = rho_ini.at[:,1].set(0.2)
+# rho_ini = rho_ini.at[:,2].set(0.2)
 
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 

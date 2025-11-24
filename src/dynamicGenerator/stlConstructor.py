@@ -20,12 +20,12 @@ from pathlib import Path
 
 
 def export_cell_structures_stl(mesh: Mesh, rho: np.ndarray, tileHandle: TileHandler, output_filename, 
-                             threshold=0.4, deflection=0.1):
+                             mask=None, deflection=0.1):
     """导出每个单元为STL格式（使用TopoDS_Compound + BRep_Builder实现）"""
     points = mesh.points
     cells = mesh.cells
-    # mask = np.max(rho,axis=-1) > threshold
-    mask = np.sum(rho, axis=-1) > threshold
+    mask = np.full(rho.shape[0], True, dtype=bool) if mask is None else mask
+    # mask = np.sum(rho, axis=-1) > threshold
     cell_type_ids = np.argmax(rho, axis=-1, keepdims=False)
     cell_type_ids = np.where(mask, cell_type_ids, -1)
 
@@ -73,30 +73,30 @@ if __name__ == "__main__":
     from src.dynamicGenerator.TileImplement.CubeSTP import STPtile
 
 
-    ZCYS = STPtile("data/stp/ZCYS.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
-    ZCYSx0 = STPtile("data/stp/ZCYSx0.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
-    ZCYSx180 = STPtile("data/stp/ZCYSx180.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
-    tileHandler = TileHandler(
-        typeList=['ZCYS','ZCYSx0','ZCYSx180'],
-        direction=(('back',"front"),("left","right"),("top","bottom")),
-        direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5}
-    )
-    tileHandler.register(['ZCYS','ZCYSx0','ZCYSx180'], [ZCYS, ZCYSx0, ZCYSx180])
+    # ZCYS = STPtile("data/stp/ZCYS.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
+    # ZCYSx0 = STPtile("data/stp/ZCYSx0.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
+    # ZCYSx180 = STPtile("data/stp/ZCYSx180.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
+    # tileHandler = TileHandler(
+    #     typeList=['ZCYS','ZCYSx0','ZCYSx180'],
+    #     direction=(('back',"front"),("left","right"),("top","bottom")),
+    #     direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5}
+    # )
+    # tileHandler.register(['ZCYS','ZCYSx0','ZCYSx180'], [ZCYS, ZCYSx0, ZCYSx180])
 
-    # pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
-    #                               0.01,0.02,0.01,
-    #                               0.,0.01,0.,
-    #                               0.02,0.02,0.02))
-    # TTx0=STPtile("data/stp/TTx0.stp",(-0.01,0.,-0.01,
-    #                                   0.01,0.02,0.01,
-    #                                   0.,0.01,0.,
-    #                                   0.02,0.02,0.02))
-    # TTx180=STPtile("data/stp/TTx180.stp",(-0.01,0.,-0.01,
-    #                                       0.01,0.02,0.01,
-    #                                       0.,0.01,0.,
-    #                                       0.02,0.02,0.02))
-    # tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-    # tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
+    pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
+                                  0.01,0.02,0.01,
+                                  0.,0.01,0.,
+                                  0.02,0.02,0.02))
+    TTx0=STPtile("data/stp/TTx0.stp",(-0.01,0.,-0.01,
+                                      0.01,0.02,0.01,
+                                      0.,0.01,0.,
+                                      0.02,0.02,0.02))
+    TTx180=STPtile("data/stp/TTx180.stp",(-0.01,0.,-0.01,
+                                          0.01,0.02,0.01,
+                                          0.,0.01,0.,
+                                          0.02,0.02,0.02))
+    tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
 
     # pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
     #                               0.01,0.02,0.01,
@@ -119,14 +119,15 @@ if __name__ == "__main__":
     else:
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
-    pathname= 'vtkZCYSZCYSx0ZCYSx180multi1p433'
-    toConstruct = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{pathname}/npy/wfc_classical_end.npy").reshape(-1, tileHandler.typeNum)
+    pathname= r'vtkf++TTx0TTx180nofilter1.8p444simpWFCsigmanoSM非常好形状'
+    rho_oped = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/更新的/{pathname}/npy/rho_oped.npy").reshape(-1, tileHandler.typeNum)
+    wfcEnd = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/更新的/{pathname}/npy/wfc_classical_end.npy").reshape(-1, tileHandler.typeNum)
     # 导出为STL（加速效果：比STP快10-20倍）
     export_cell_structures_stl(
         mesh=mesh,
-        rho=toConstruct,
+        rho=wfcEnd,
         tileHandle=tileHandler,
-        output_filename=f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{pathname}/{pathname}.stl",
-        threshold=0.4,
+        output_filename=f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/更新的/{pathname}/{pathname}.stl",
+        mask=np.max(rho_oped,axis=-1,keepdims=False)>0.5,
         deflection=0.5  # 可调整：0.1（高精度慢）→ 1.0（低精度快）
     )
