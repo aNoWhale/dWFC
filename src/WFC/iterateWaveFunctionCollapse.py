@@ -161,7 +161,7 @@ def full_while_loop(
 
 
 
-def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler, loop, plot:bool|str=False, *args, **kwargs)->jnp.ndarray:
+def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler, plot:bool|str=False, *args, **kwargs)->jnp.ndarray:
     """a WFC function
 
     Args:
@@ -211,8 +211,8 @@ def waveFunctionCollapse(init_probs,adj_csr, tileHandler: TileHandler, loop, plo
         probs = update_by_neighbors(probs, collapse_idx, neighbors, neighbors_dirs_index,neighbors_dirs_opposite_index, tileHandler.compatibility)
         
         # 坍缩选定的单元
-        tau = 1e-3 + 1 / (1 + np.exp(-10. * -1. * (loop / 100. - 0.5)))
-        # tau=1e-3
+        # tau = 1e-3 + 1 / (1 + np.exp(-10. * -1. * (loop / 100. - 0.5)))
+        tau=1e-3
         p_collapsed, _ = collapse(subkey=subkey2, probs=probs[collapse_idx], max_rerolls=3, zero_threshold=-1e-5, tau=tau,k=1000)
         probs = probs.at[collapse_idx].set(jnp.clip(p_collapsed,0,1))
         collapse_list.append(collapse_idx)

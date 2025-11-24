@@ -60,6 +60,35 @@ def save_sol(fe, sol, sol_file, cell_infos=None, point_infos=None):
             out_mesh.point_data[name] = onp.array(data, dtype=onp.float32)
     out_mesh.write(sol_file)
 
+def extract_theta_from_vtu(vtu_file_path):
+    """
+    从VTU文件中提取所有theta开头的cell数据
+    
+    Parameters
+    ----------
+    vtu_file_path : str
+        VTU文件路径
+    
+    Returns
+    -------
+    theta_dict : dict
+        键为theta字段名（如theta0），值为对应的numpy数组
+    """
+    # 读取VTU文件
+    mesh = meshio.read(vtu_file_path)
+    # 初始化theta字典
+    theta_dict = {}
+    # 遍历cell_data，筛选theta开头的字段
+    for key in mesh.cell_data.keys():
+        if key.startswith("theta"):
+            # meshio的cell_data每个字段是列表（对应不同cell block），取第一个元素
+            theta_data = mesh.cell_data[key][0]  # 核心：提取cell数据
+            theta_dict[key] = theta_data
+    return theta_dict
+
+
+
+
 
 def modify_vtu_file(input_file_path, output_file_path):
     """Convert VTK file version from 2.2 to 1.0 for compatibility.
@@ -255,3 +284,5 @@ class Jplotter:
         """优化结束后保持图像显示"""
         plt.ioff()  # 关闭交互模式
         plt.show()  # 保持图像窗口
+
+

@@ -102,37 +102,37 @@ if __name__ == "__main__":
     # tileHandler = TileHandler(typeList=['BCC','cubic','pp'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
     # tileHandler.register(['BCC','cubic','pp'],[BCC,Cubic,pp])
     
-    ZCYS=STPtile("data/stp/ZCYS.stp",(-5,-5,-5,
-                                  5,5,5,
-                                  0.,0.,0.,
-                                  10,10,10))
-    ZCYSx0=STPtile("data/stp/ZCYSx0.stp",(-5,-5,-5,
-                                  5,5,5,
-                                  0.,0.,0.,
-                                  10,10,10))
-    ZCYSx180=STPtile("data/stp/ZCYSx180.stp",(-5,-5,-5,
-                                  5,5,5,
-                                  0.,0.,0.,
-                                  10,10,10))
-    tileHandler = TileHandler(typeList=['ZCYS','ZCYSx0','ZCYSx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-    tileHandler.register(['ZCYS','ZCYSx0','ZCYSx180'],[ZCYS,ZCYSx0,ZCYSx180])
+    # ZCYS=STPtile("data/stp/ZCYS.stp",(-5,-5,-5,
+    #                               5,5,5,
+    #                               0.,0.,0.,
+    #                               10,10,10))
+    # ZCYSx0=STPtile("data/stp/ZCYSx0.stp",(-5,-5,-5,
+    #                               5,5,5,
+    #                               0.,0.,0.,
+    #                               10,10,10))
+    # ZCYSx180=STPtile("data/stp/ZCYSx180.stp",(-5,-5,-5,
+    #                               5,5,5,
+    #                               0.,0.,0.,
+    #                               10,10,10))
+    # tileHandler = TileHandler(typeList=['ZCYS','ZCYSx0','ZCYSx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    # tileHandler.register(['ZCYS','ZCYSx0','ZCYSx180'],[ZCYS,ZCYSx0,ZCYSx180])
     
     
     
-    # pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
-    #                               0.01,0.02,0.01,
-    #                               0.,0.01,0.,
-    #                               0.02,0.02,0.02))
-    # TTx0=STPtile("data/stp/TTx0.stp",(-0.01,0.,-0.01,
-    #                                   0.01,0.02,0.01,
-    #                                   0.,0.01,0.,
-    #                                   0.02,0.02,0.02))
-    # TTx180=STPtile("data/stp/TTx180.stp",(-0.01,0.,-0.01,
-    #                                       0.01,0.02,0.01,
-    #                                       0.,0.01,0.,
-    #                                       0.02,0.02,0.02))
-    # tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-    # tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
+    pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
+                                  0.01,0.02,0.01,
+                                  0.,0.01,0.,
+                                  0.02,0.02,0.02))
+    TTx0=STPtile("data/stp/TTx0.stp",(-0.01,0.,-0.01,
+                                      0.01,0.02,0.01,
+                                      0.,0.01,0.,
+                                      0.02,0.02,0.02))
+    TTx180=STPtile("data/stp/TTx180.stp",(-0.01,0.,-0.01,
+                                          0.01,0.02,0.01,
+                                          0.,0.01,0.,
+                                          0.02,0.02,0.02))
+    tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
     from jax_fem.generate_mesh import get_meshio_cell_type,box_mesh_gmsh
     import meshio
     ele_type = 'HEX8'
