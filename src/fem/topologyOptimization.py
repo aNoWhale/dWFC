@@ -262,25 +262,25 @@ location_fns = [load_location]
 # tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
 
 
-# tileHandler = TileHandler(typeList=['++weak', 'TTx0', 'TTx180','void'], 
-#                           direction=(('back',"front"),("left","right"),("top","bottom")),
-#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-# tileHandler.selfConnectable(typeName=['++weak','TTx0', 'TTx180','void'],value=1)
-# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
-# tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTx0','TTx180'],direction="isotropy",value=1,dual=True)
-
-tileHandler = TileHandler(typeList=['++weak', 'pillar','void'], 
+tileHandler = TileHandler(typeList=['++weak', 'TTx0', 'TTx180','void'], 
                           direction=(('back',"front"),("left","right"),("top","bottom")),
                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-tileHandler.selfConnectable(typeName=["++weak",'pillar','void'],value=-1)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillar','void'],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ 'void',],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ '++weak',],direction=["left",'right','front','back'],value=-1,dual=True)
+tileHandler.selfConnectable(typeName=['++weak','TTx0', 'TTx180','void'],value=1)
+tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx0',],direction="right",value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTx180',],direction="left",value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTx0','TTx180'],direction="isotropy",value=1,dual=True)
+
+# tileHandler = TileHandler(typeList=['++weak', 'pillar','void'], 
+#                           direction=(('back',"front"),("left","right"),("top","bottom")),
+#                           direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+# tileHandler.selfConnectable(typeName=["++weak",'pillar','void'],value=1)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillar','void'],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ 'void',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='pillar',toTypeName=[ '++weak',],direction=["left",'right','front','back'],value=-1,dual=True)
 
 
 
@@ -503,7 +503,7 @@ cell_centers = jax.lax.stop_gradient(compute_cell_centers(mesh.points[mesh.cells
 wfc=lambda prob,key: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility,key, cell_centers)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':51, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"nofilter",'filter_radius':1.8}
+optimizationParams = {'maxIters':51, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sensitivity_filtering':"common",'filter_radius':1.8}
 
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum

@@ -193,14 +193,17 @@ def preprocess_compatibility(compatibility, compat_threshold=1e-3, eps=1e-5):
     print("Preprocessing compatibility matrix...")
     # compatibility shape: (n_dirs, n_tiles, n_tiles)
     n_dirs, n_tiles, _ = compatibility.shape
-    compat_mask = (compatibility > compat_threshold).astype(jnp.float32)  # (n_dirs, n_tiles, n_tiles)
-    
+    positive_mask = (compatibility > compat_threshold).astype(jnp.float32)  # (n_dirs, n_tiles, n_tiles)
+    negative_mask = (compatibility <= compat_threshold).astype(jnp.float32)  # (n_dirs, n_tiles, n_tiles)
     # 逐行（每个方向×每个tile）计算行和
-    row_sum = jnp.sum(compat_mask, axis=-1)  # (n_dirs, n_tiles)
-    v = 1.0 / (row_sum + eps)  # (n_dirs, n_tiles)
-    
-    # 逐行乘以权重
-    new_compatibility = v[:, :, None] * compatibility  # (n_dirs, n_tiles, n_tiles)
+    positive_row_sum = jnp.sum(positive_mask, axis=-1)  # (n_dirs, n_tiles)
+    positive_v = 1.0 / (positive_row_sum + eps)  # (n_dirs, n_tiles)
+    negative_row_sum = jnp.sum(negative_mask, axis=-1)  # (n_dirs, n_tiles)
+    negative_v = 1.0 / (negative_row_sum + eps)  # (n_dirs, n_tiles)
+
+    new_compatibility = np.where(
+        compatibility > compat_threshold,compatibility * positive_v[:,:, None],
+        compatibility * negative_v[:,:, None])
     # new_compatibility = jnp.clip(new_compatibility, eps, 1.0)
     return new_compatibility
 
