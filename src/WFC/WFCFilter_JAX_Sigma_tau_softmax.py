@@ -80,7 +80,7 @@ def compute_cell_centers(cell_vertices):
 
 
 @partial(jax.jit)
-def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D, dirs_opposite_index, compatibility, alpha=0., tau=2.0):
+def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D, dirs_opposite_index, compatibility, alpha=0.5, tau=2.0):
     n_cells, n_tiles = init_probs.shape
     eps = 1e-12  # 数值稳定性参数
     
@@ -139,7 +139,7 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     # p_updated = p_updated / jnp.sum(p_updated,axis=-1)  # 归一化
     # jax.debug.print("p_updated\n{a}",a=p_updated)
     # 混合初始概率
-    p_updated = (1 - alpha) * p_updated + alpha * init_probs[collapse_idx]
+    p_updated = alpha * p_updated + (1-alpha) * init_probs[collapse_idx]
     # p_updated = p_updated / jnp.sum(p_updated)  # 再次归一化
     # p_updated = jnp.clip(p_updated, eps, 1.0)
     
@@ -151,7 +151,7 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     return updated_probs
 
 @partial(jax.jit)
-def single_update_neighbors(collapse_idx, step1_probs, A, D, compatibility, tau=2.0):
+def single_update_neighbors(collapse_idx, step1_probs, A, D, compatibility, alpha= 0.5,tau=2.0):
     n_cells, n_tiles = step1_probs.shape
     eps = 1e-10
     
@@ -182,6 +182,7 @@ def single_update_neighbors(collapse_idx, step1_probs, A, D, compatibility, tau=
     w = neighbor_mask_broadcast  # (n_cells, 1)
     p_prev = step1_probs  # (n_cells, n_tiles)
     p_updated = (1 - w) * p_prev + w * tau_contrib
+    p_updated = alpha * p_updated+(1-alpha) * p_prev
     p_updated = p_updated / jnp.sum(p_updated, axis=1)[:, None]
     p_updated = jnp.clip(p_updated, eps, 1.0) #有待商榷
     # jax.debug.print("p_updated neighbors:\n{a}",a=p_updated)
