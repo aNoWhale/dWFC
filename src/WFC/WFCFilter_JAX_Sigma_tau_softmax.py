@@ -145,8 +145,8 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     
     # 9. 局部软更新（维度：n_cells × n_tiles）
     updated_probs = init_probs * (1 - collapse_mask) + p_updated * collapse_mask
-    # updated_probs = updated_probs / jnp.sum(updated_probs, axis=1)[:, None]
-    # updated_probs = jnp.clip(updated_probs, eps, 1.0) #有待商榷
+    updated_probs = updated_probs / jnp.sum(updated_probs, axis=1)[:, None]
+    updated_probs = jnp.clip(updated_probs, eps, 1.0) #有待商榷
     # jax.debug.print("updated_probs:\n{a}",a=updated_probs)
     return updated_probs
 
@@ -182,8 +182,8 @@ def single_update_neighbors(collapse_idx, step1_probs, A, D, compatibility, tau=
     w = neighbor_mask_broadcast  # (n_cells, 1)
     p_prev = step1_probs  # (n_cells, n_tiles)
     p_updated = (1 - w) * p_prev + w * tau_contrib
-    # p_updated = p_updated / jnp.sum(p_updated, axis=1)[:, None]
-    # p_updated = jnp.clip(p_updated, eps, 1.0) #有待商榷
+    p_updated = p_updated / jnp.sum(p_updated, axis=1)[:, None]
+    p_updated = jnp.clip(p_updated, eps, 1.0) #有待商榷
     # jax.debug.print("p_updated neighbors:\n{a}",a=p_updated)
     return p_updated
 
