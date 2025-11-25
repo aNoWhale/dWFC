@@ -234,7 +234,7 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
         init_probs_norm,
         cell_centers,
         A, D, dirs_opposite_index, compatibility_clipped,
-        0.,
+        1., #我靠，一直是0
         tau
     )
     # probs_step1 = jnp.mean(batch_updated_step1, axis=0)
