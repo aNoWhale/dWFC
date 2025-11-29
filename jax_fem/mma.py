@@ -662,6 +662,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     J_prev = np.inf
     rho_prev = rho_ini.copy()
     rho = rho_ini
+    rho_f = rho_ini
     infos={}
     con_violation_last = 0
     rfmean_last=0
@@ -697,7 +698,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         info={}
         # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
         alpha = 1
-        beta=0.8
+        beta=1 #0.8
         
         print(f"MMA solver...")
         print(f"collapsing...")
@@ -849,7 +850,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         infos[loop]=info
     # jplotter.finalize()
     print(f"Total optimization time: {time.strftime('%H:%M:%S', time.gmtime(time.time()-allstart))} [s]")
-    return rho,infos
+    return rho_f,infos
 
 
 def compute_material_grayness(rho_f: jnp.ndarray, 
