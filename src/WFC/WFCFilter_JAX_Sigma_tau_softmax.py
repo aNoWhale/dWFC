@@ -84,13 +84,13 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     n_cells, n_tiles = init_probs.shape
     eps = 1e-12  # 数值稳定性参数
     
-    # 1. 生成空间软掩码
-    collapse_mask = spatial_soft_mask(
-        target_cell_idx=collapse_idx,
-        cell_centers=cell_centers,
-        sigma=0.1,
-        neighbor_radius=1.2
-    )[:, None]  # (n_cells, 1)
+    ## 1. 生成空间软掩码
+    # collapse_mask = spatial_soft_mask(
+    #     target_cell_idx=collapse_idx,
+    #     cell_centers=cell_centers,
+    #     sigma=0.1,
+    #     neighbor_radius=1.2
+    # )[:, None]  # (n_cells, 1)
     
     # 2. 提取当前单元的邻居掩码和方向（维度修正）
     neighbor_mask = A[collapse_idx, :]  # (n_cells,)
@@ -144,7 +144,8 @@ def single_update_by_neighbors(collapse_idx, key, init_probs, cell_centers, A, D
     # p_updated = jnp.clip(p_updated, eps, 1.0)
     
     # 9. 局部软更新（维度：n_cells × n_tiles）
-    updated_probs = init_probs * (1 - collapse_mask) + p_updated * collapse_mask
+    # updated_probs = init_probs * (1 - collapse_mask) + p_updated * collapse_mask
+    updated_probs = init_probs * (1 - neighbor_mask_broadcast) + p_updated * neighbor_mask_broadcast
     # updated_probs = updated_probs / jnp.sum(updated_probs, axis=1)[:, None]
     # updated_probs = jnp.clip(updated_probs, eps, 1.0) #有待商榷
     # jax.debug.print("updated_probs:\n{a}",a=updated_probs)
@@ -205,12 +206,13 @@ def preprocess_compatibility(compatibility, compat_threshold=1e-3, eps=1e-5):
     new_compatibility = np.where(
         compatibility > compat_threshold,compatibility * positive_v[:,:, None],
         compatibility * negative_v[:,:, None])
-    # new_compatibility = jnp.clip(new_compatibility, eps, 1.0)
+    
+    
     return new_compatibility
 
 
 @partial(jax.jit)
-def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, key, cell_centers, tau=0.1,*args, **kwargs):
+def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, key, cell_centers, tau=0.1,alpha1=0.,*args, **kwargs):
     """WFC主函数：用vmap批量处理，适配可变邻居数（普通空间版本）"""
     n_cells, n_tiles = init_probs.shape
     eps = 1e-10
@@ -234,7 +236,7 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
         init_probs_norm,
         cell_centers,
         A, D, dirs_opposite_index, compatibility_clipped,
-        0.3,
+        alpha1, #我靠，一直是0
         tau
     )
     # probs_step1 = jnp.mean(batch_updated_step1, axis=0)
