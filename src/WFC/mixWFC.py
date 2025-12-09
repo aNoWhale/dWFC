@@ -15,6 +15,7 @@ import tqdm.rich as tqdm
 
 import numpy as np
 
+# 假设以下模块是您项目中已实现的核心模块
 from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.builder import visualizer_2D, Visualizer
 from src.WFC.FigureManager import FigureManager
@@ -50,13 +51,18 @@ def select_collapse_by_map(key, collapse_map):
     return int(idx)  # 转为Python int，避免维度问题
 
 
-def detect_contradiction(probs, collapse_idx):
-    """检测矛盾：坍缩节点概率全0 或 邻居概率全0"""
+def detect_contradiction(probs, collapse_idx, neighbors=None):
+    """完善矛盾检测：当前节点全0 / 全局无有效节点 / 邻居节点全0"""
     # 1. 检查当前节点概率是否全0
     node_prob_sum = jnp.sum(jnp.abs(probs[collapse_idx]))
     if node_prob_sum < 1e-6:
         return True
-    # 2. 可选：检查所有未坍缩节点是否都无有效概率（全局矛盾）
+    # 2. 检查邻居节点是否全0（关键补充）
+    if neighbors is not None and len(neighbors) > 0:
+        neighbor_sums = jnp.sum(jnp.abs(probs[neighbors]), axis=-1)
+        if jnp.all(neighbor_sums < 1e-6):
+            return True
+    # 3. 检查所有未坍缩节点是否都无有效概率（全局矛盾）
     global_prob_sum = jnp.sum(jnp.abs(probs), axis=-1)
     valid_nodes = jnp.sum(global_prob_sum > 1e-6)
     if valid_nodes == 0:
@@ -111,10 +117,11 @@ def update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility):
 
 
 def collapse_max_prob(key, prob, backtrack=False):
-    """经典WFC坍缩：优先选概率最高的瓦片（回溯时换随机种子）"""
+    """经典WFC坍缩：优先选概率最高的瓦片（回溯时生成全新随机种子）"""
     if backtrack:
-        # 回溯时重新生成随机种子，避免重复选同一个瓦片
-        key, subkey = jax.random.split(key)
+        # 核心修复：回溯时生成全新随机种子，避免重复选择
+        key = jax.random.PRNGKey(jax.random.randint(key, (), 0, 1000000))
+        subkey = key
     else:
         subkey = key
     
@@ -130,11 +137,12 @@ def collapse_max_prob(key, prob, backtrack=False):
 
 
 def waveFunctionCollapse(init_probs, adj_csr, tileHandler: TileHandler, plot: bool | str = False, *args, **kwargs) -> jnp.ndarray:
-    """经典WFC迭代流程 + collapse_map + 回溯机制"""
+    """经典WFC迭代流程 + 修复后的collapse_map + 可生效的回溯机制"""
     key = jax.random.PRNGKey(0)
     num_elements = init_probs.shape[0]
     max_neighbors = kwargs.pop("max_neighbors", 4)
     max_backtracks = kwargs.pop("max_backtracks", 100)  # 最大回溯次数
+    max_stack_depth = kwargs.pop("max_stack_depth", 50)  # 状态栈最大深度（避免内存溢出）
 
     # 初始化：保留原collapse_map（熵选择核心）
     probs = jnp.array(init_probs, dtype=jnp.float32)
@@ -154,7 +162,7 @@ def waveFunctionCollapse(init_probs, adj_csr, tileHandler: TileHandler, plot: bo
     opposite_dir_array = jnp.array(tileHandler.opposite_dir_array, dtype=jnp.int32)
     compatibility = jnp.array(tileHandler.compatibility, dtype=jnp.float32)
 
-    # 经典WFC核心迭代循环（保留collapse_map + 回溯）
+    # 经典WFC核心迭代循环（修复后的回溯逻辑）
     while not should_stop:
         # 检查最大回溯次数，避免死循环
         if backtrack_count >= max_backtracks:
@@ -177,56 +185,71 @@ def waveFunctionCollapse(init_probs, adj_csr, tileHandler: TileHandler, plot: bo
             should_stop = True
             break
 
-        # 4. 保存当前状态到回溯栈（坍缩前）
-        current_state = (
-            jnp.copy(probs),          # 概率状态
-            jnp.copy(collapse_map),   # 熵权重状态
-            key,                      # 随机种子
-            collapse_idx              # 待坍缩节点
-        )
-        state_stack.append(current_state)
-
-        # 5. 保留原solid_mask逻辑（概率阈值过滤）
+        # 4. 保留原solid_mask逻辑（概率阈值过滤）
         solid_mask = jnp.max(probs, axis=-1) > 0
 
-        # 6. 获取邻居和方向索引（核心修复：直接获取整数索引，无字符串）
+        # 5. 获取邻居和方向索引（核心修复：直接获取整数索引，无字符串）
         neighbors, dirs_index = get_neighbors(adj_csr, collapse_idx, tileHandler)
         # 计算反向方向索引（邻居→当前节点的方向）
         dirs_opposite_index = opposite_dir_array[dirs_index]
         
-        # 7. 保留原更新流程：邻居先更新当前节点概率
+        # 6. 核心修复：仅当要修改状态时，才保存纯净状态到回溯栈
+        state_saved = False
         if solid_mask[collapse_idx]:
+            # 保存当前纯净状态（未更新、未坍缩、未修改collapse_map）
+            current_state = (
+                jnp.copy(probs),          # 概率状态（未更新）
+                jnp.copy(collapse_map),   # 熵权重状态（未修改）
+                key,                      # 随机种子
+                collapse_idx              # 待坍缩节点
+            )
+            # 限制栈深度，避免内存溢出
+            if len(state_stack) >= max_stack_depth:
+                state_stack.pop(0)  # 移除最早的状态
+            state_stack.append(current_state)
+            state_saved = True
+            
+            # 7. 邻居先更新当前节点概率
             probs = update_by_neighbors(
                 probs, collapse_idx, neighbors, dirs_opposite_index, compatibility
             )
             
-            # 8. 检测更新后是否出现矛盾
-            if detect_contradiction(probs, collapse_idx):
+            # 8. 检测更新后是否出现矛盾（传入neighbors，完善检测）
+            if detect_contradiction(probs, collapse_idx, neighbors):
                 print(f"#### 节点{collapse_idx}出现矛盾，触发回溯 ({backtrack_count+1}/{max_backtracks}) ####")
-                # 恢复上一状态
-                probs, collapse_map, key, collapse_idx = state_stack.pop()
+                # 恢复上一状态（增加栈非空判断）
+                if state_stack and state_saved:
+                    probs, collapse_map, key, collapse_idx = state_stack.pop()
+                    # 核心修复：降低该节点优先级，避免重复选择
+                    collapse_map = collapse_map.at[collapse_idx].set(0.1)
+                    state_saved = False
                 backtrack_count += 1
-                # 跳过本次循环，重新选择
+                # 跳过本次循环，重新选择节点
                 continue
             
             # 9. 经典WFC坍缩：优先选概率最高的瓦片（回溯时换随机）
             p_collapsed, key = collapse_max_prob(subkey2, probs[collapse_idx], backtrack=(backtrack_count>0))
             probs = probs.at[collapse_idx].set(p_collapsed)
        
-            # 10. 保留原更新流程：坍缩后更新邻居概率
+            # 10. 坍缩后更新邻居概率
             probs = update_neighbors(probs, neighbors, dirs_index, p_collapsed, compatibility)
             
-            # 11. 再次检测邻居更新后是否矛盾
-            if detect_contradiction(probs, collapse_idx):
+            # 11. 再次检测邻居更新后是否矛盾（传入neighbors）
+            if detect_contradiction(probs, collapse_idx, neighbors):
                 print(f"#### 邻居更新后节点{collapse_idx}出现矛盾，触发回溯 ({backtrack_count+1}/{max_backtracks}) ####")
-                probs, collapse_map, key, collapse_idx = state_stack.pop()
+                # 恢复上一状态（增加栈非空判断）
+                if state_stack and state_saved:
+                    probs, collapse_map, key, collapse_idx = state_stack.pop()
+                    # 核心修复：降低该节点优先级，避免重复选择
+                    collapse_map = collapse_map.at[collapse_idx].set(0.1)
+                    state_saved = False
                 backtrack_count += 1
                 continue
         else:
             # 保留原逻辑：非solid节点概率置0
             probs = probs.at[collapse_idx].multiply(0)
 
-        # 12. 保留collapse_map核心更新逻辑（熵权重调整）
+        # 12. collapse_map核心更新逻辑（熵权重调整）
         collapse_list.append(collapse_idx)
         collapse_map = collapse_map.at[collapse_idx].set(0)  # 已坍缩节点熵权重置0
         collapse_map = collapse_map.at[neighbors].multiply(10)  # 邻居熵权重提升（优先级提高）
@@ -294,10 +317,11 @@ if __name__ == "__main__":
     figureManager = FigureManager(figsize=(10,10))
     visualizer = Visualizer(tileHandler=tileHandler, points=adj['vertices'], figureManager=figureManager)
 
-    # 运行经典WFC（保留collapse_map + 回溯）
+    # 运行修复后的经典WFC（collapse_map + 可生效的回溯）
     probs, max_entropy, collapse_list = waveFunctionCollapse(
         init_probs, adj, tileHandler, plot='2d', 
-        points=adj['vertices'], visualizer=visualizer, max_neighbors=4, max_backtracks=100
+        points=adj['vertices'], visualizer=visualizer, 
+        max_neighbors=4, max_backtracks=200, max_stack_depth=50
     )
 
     # 结果输出（保留原逻辑）

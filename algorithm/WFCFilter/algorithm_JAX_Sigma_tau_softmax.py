@@ -209,9 +209,10 @@ def preprocess_compatibility(compatibility, compat_threshold=1e-3, eps=1e-5):
     return new_compatibility
 
 
-@partial(jax.jit)
+# @partial(jax.jit)
 def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, key, cell_centers, tau=0.1,*args, **kwargs):
     """WFC主函数：用vmap批量处理，适配可变邻居数（普通空间版本）"""
+    progress={}
     n_cells, n_tiles = init_probs.shape
     eps = 1e-10
     
@@ -219,6 +220,7 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     init_probs_norm = init_probs
     # init_probs_clipped = jnp.clip(init_probs, eps, 1.0)
     # init_probs_norm = init_probs_clipped / jnp.sum(init_probs_clipped, axis=1)[:, None]
+    progress["1_step0"]=init_probs_norm
     # 2. 兼容性矩阵预处理（确保数值稳定性）
     compatibility_clipped = compatibility
     # compatibility_clipped = jnp.clip(compatibility, eps, 1.0)
@@ -263,7 +265,7 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     # 3.4 加权求和聚合（沿坍缩中心轴，axis=0）
     weighted_updates = batch_updated_step1 * weights_expanded  # 逐元素加权
     probs_step1 = jnp.sum(weighted_updates, axis=0)  # (n_cells, n_tiles) → 聚合后
-    
+    progress["1_step1"]=probs_step1
     # 3.5 归一化+数值裁剪（保证概率分布合法）
     # probs_step1 = probs_step1 / jnp.sum(probs_step1, axis=-1)[:, None]
     # probs_step1 = jnp.clip(probs_step1, eps, 1.0) #或许可以改为-1，1
@@ -308,137 +310,31 @@ def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, k
     # final_probs = (final_probs+1)/2
     # final_probs = final_probs / jnp.sum(final_probs, axis=-1)[:, None]
     final_probs = final_probs / jnp.linalg.norm(final_probs, axis=-1,ord=1)[:, None]
+    progress["1_step2"]=final_probs
     # final_probs = jnp.clip(final_probs, eps, 1.0)
     
-    return final_probs, 0, jnp.arange(n_cells)
+    return final_probs, 0, progress
 
 
-# ========== 测试模块（保持不变） ==========
-class MockTileHandler:
-    """模拟TileHandler类（用于测试）"""
-    def __init__(self):
-        self.dir_int_to_str = {0: 'back', 1: 'front', 2: 'bottom', 3: 'top', 4: 'left', 5: 'right'}
 
-
-def test_adjacency_matrix():
-    """测试1：邻接矩阵邻居关系验证"""
-    print("="*50)
-    print("测试1：邻接矩阵邻居关系验证")
-    adj_csr = {
-        'row_ptr': [0, 3, 6, 9, 12, 15, 18, 21, 24],
-        'col_idx': [1, 2, 4, 0, 3, 5, 0, 3, 6, 1, 2, 7, 0, 5, 6, 1, 4, 7, 2, 4, 7, 3, 5, 6],
-        'directions': ['right', 'top', 'front'] * 8
-    }
-    tile_handler = MockTileHandler()
-    
-    A, D = preprocess_adjacency(adj_csr, tile_handler)
-    cell_0_neighbors = jnp.where(A[0, :] == 1)[0]
-    print(f"单元0的邻居索引: {cell_0_neighbors}")
-    print(f"单元0的邻居方向: {D[0, cell_0_neighbors]}")
-    print(f"单元0的邻居数量: {len(cell_0_neighbors)}")
-    
-    assert len(cell_0_neighbors) == 3, f"单元0应有3个邻居，实际{len(cell_0_neighbors)}个"
-    print("✅ 邻接矩阵邻居关系验证通过")
-    print("="*50)
-
-
-def test_cell_centers():
-    """测试2：单元中心计算验证"""
-    print("\n" + "="*50)
-    print("测试2：单元中心计算验证")
-    cell_vertices = jnp.array([
-        [[0,0,0], [1,0,0], [1,1,0], [0,1,0], [0,0,1], [1,0,1], [1,1,1], [0,1,1]],
-        [[1,0,0], [2,0,0], [2,1,0], [1,1,0], [1,0,1], [2,0,1], [2,1,1], [1,1,1]],
-        [[0,1,0], [1,1,0], [1,2,0], [0,2,0], [0,1,1], [1,1,1], [1,2,1], [0,2,1]],
-        [[1,1,0], [2,1,0], [2,2,0], [1,2,0], [1,1,1], [2,1,1], [2,2,1], [1,2,1]],
-        [[0,0,1], [1,0,1], [1,1,1], [0,1,1], [0,0,2], [1,0,2], [1,1,2], [0,1,2]],
-        [[1,0,1], [2,0,1], [2,1,1], [1,1,1], [1,0,2], [2,0,2], [2,1,2], [1,1,2]],
-        [[0,1,1], [1,1,1], [1,2,1], [0,2,1], [0,1,2], [1,1,2], [1,2,2], [0,2,2]],
-        [[1,1,1], [2,1,1], [2,2,1], [1,2,1], [1,1,2], [2,1,2], [2,2,2], [1,2,2]],
-    ])
-    
-    cell_centers = compute_cell_centers(cell_vertices)
-    print(f"单元0中心坐标: {cell_centers[0]}")
-    print(f"单元1中心坐标: {cell_centers[1]}")
-    assert cell_centers.shape == (8, 3), f"单元中心形状应为(8,3)，实际{cell_centers.shape}"
-    print("✅ 单元中心计算验证通过")
-    print("="*50)
-
-
-def test_wfc_run():
-    """测试3：WFC完整运行验证（普通空间版本）"""
-    print("\n" + "="*50)
-    print("测试3：WFC完整运行验证")
-    # 1. 基础参数
-    n_cells = 8
-    n_tiles = 3    # 3种Tile
-    n_dirs = 6     # 6个方向（back/front/bottom/top/left/right）
-    tile_handler = MockTileHandler()
-    
-    # 2. 模拟CSR邻接数据
-    adj_csr = {
-        'row_ptr': [0, 3, 6, 9, 12, 15, 18, 21, 24],
-        'col_idx': [1, 2, 4, 0, 3, 5, 0, 3, 6, 1, 2, 7, 0, 5, 6, 1, 4, 7, 2, 4, 7, 3, 5, 6],
-        'directions': ['right', 'top', 'front'] * 8
-    }
-    
-    # 3. 预处理邻接矩阵
-    A, D = preprocess_adjacency(adj_csr, tile_handler)
-    
-    # 4. 构造兼容性矩阵（关键：维度n_dirs × n_tiles × n_tiles）
-    base_compat = jnp.array([
-        [0.9, 0.1, 0.0],
-        [0.1, 0.9, 0.1],
-        [0.0, 0.1, 0.9]
-    ])
-    # 6个方向共享相同的兼容性规则（可根据需求自定义）
-    compatibility = jnp.tile(base_compat, (n_dirs, 1, 1))  # (6, 3, 3)
-    compatibility = preprocess_compatibility(compatibility)
-    
-    # 5. 构造单元中心
-    cell_vertices = jnp.array([
-        [[0,0,0], [1,0,0], [1,1,0], [0,1,0], [0,0,1], [1,0,1], [1,1,1], [0,1,1]] for _ in range(n_cells)
-    ])
-    cell_centers = compute_cell_centers(cell_vertices)
-    
-    # 6. 初始概率（均匀分布）
-    init_probs = jnp.ones((n_cells, n_tiles)) / n_tiles
-    
-    # 7. 方向反向索引（back↔front, bottom↔top, left↔right）
-    dirs_opposite_index = jnp.array([1,0,3,2,5,4])  # (6,)
-    
-    # 8. 随机密钥
-    key = jax.random.PRNGKey(42)
-    
-    # 9. 运行WFC
-    final_probs, _, _ = waveFunctionCollapse(
-        init_probs=init_probs,
-        A=A,
-        D=D,
-        dirs_opposite_index=dirs_opposite_index,
-        compatibility=compatibility,
-        key=key,
-        cell_centers=cell_centers,
-        tau=1.0
-    )
-    
-    # 10. 验证结果
-    print(f"WFC输出概率形状: {final_probs.shape}")
-    print(f"单元0的最终概率: {final_probs[0]}")
-    print(f"单元0概率和: {jnp.sum(final_probs[0]):.4f}")
-    print(f"所有单元概率和: {jnp.sum(final_probs, axis=1)}")
-    
-    # 断言验证
-    assert final_probs.shape == (n_cells, n_tiles), f"输出形状应为({n_cells},{n_tiles})，实际{final_probs.shape}"
-    assert jnp.allclose(jnp.sum(final_probs, axis=1), 1.0, atol=1e-3), "每个单元概率和应≈1"
-    print("✅ WFC完整运行验证通过")
-    print("="*50)
 
 
 if __name__ == "__main__":
-    # 运行所有测试
-    test_adjacency_matrix()
-    test_cell_centers()
-    test_wfc_run()
-    
-    print("\n🎉 所有测试通过！WFC算法（普通空间版本）运行正常")
+    from src.WFC.TileHandler_JAX import TileHandler
+    tileHandler = TileHandler(typeList=['cross', 'up','right','down','left'], 
+                          direction=(('y+',"y-"),("x+","x-")),
+                          direction_map={"y+":0,"x+":1,"y-":2,"x-":3})
+    # tileHandler.selfConnectable(typeName=['cross', 'up','right','down','left'],value=1)
+    tileHandler.setConnectiability(fromTypeName="up",toTypeName=["down"],direction=["y+"],value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName="up",toTypeName=["up","right","left","cross"],direction=["y+"],value=-1,dual=True)
+    tileHandler.setConnectiability(fromTypeName="up",toTypeName=["up",'right','down',"cross"],direction=["x+"],value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName="up",toTypeName=['left'],direction=["x+"],value=-1,dual=True)
+    tileHandler.setConnectiability(fromTypeName="up",toTypeName=['right','down','left','cross'],direction=["y-"],value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName="up",toTypeName=['up'],direction=["y-"],value=-1,dual=True)
+    tileHandler.selfConnectable(typeName=['up'],direction=["x+",'x-'],value=1)
+    tileHandler.selfConnectable(typeName=['up'],direction=['y+','y-'],value=-1)
+
+    tileHandler.setConnectiability(fromTypeName="right",toTypeName=['up'],direction=["up"],value=-1,dual=True)
+
+    Nx,Ny=5,5
+    init_probs=np.ones((Nx,Ny,))/
