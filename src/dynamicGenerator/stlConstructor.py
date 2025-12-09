@@ -85,7 +85,9 @@ if __name__ == "__main__":
     #     direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5}
     # )
     # tileHandler.register(['ZCYS','ZCYSx0','ZCYSx180'], [ZCYS, ZCYSx0, ZCYSx180])
-
+    # (x_min, y_min, z_min, x_max, y_max, z_max,
+    #  center_x, center_y, center_z,
+    #  size_x, size_y, size_z)
     pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
                                   0.01,0.02,0.01,
                                   0.,0.01,0.,
@@ -98,6 +100,24 @@ if __name__ == "__main__":
                                           0.01,0.02,0.01,
                                           0.,0.01,0.,
                                           0.02,0.02,0.02))
+    TTz0 = STPtile('data/stp/TTz0.STEP',(-0.01, 0.,-0.01,
+                                          0.01,0.02,0.01,
+                                          0.,0.0,0.01,
+                                          0.02,0.02,0.02))
+    TTz180 = STPtile('data/stp/TTz180.STEP',(-0.01,0.,-0.01,
+                                          0.01,0.02,0.01,
+                                          0.,0.,0.01,
+                                          0.02,0.02,0.02))
+    TTy0=STPtile("data/stp/TTy0.STEP",(-0.01,0.,-0.01,
+                                      0.01,0.02,0.01,
+                                      0.,0.01,0.,
+                                      0.02,0.02,0.02))
+    TTy180=STPtile("data/stp/TTy180.STEP",(-0.01,0.,-0.01,
+                                      0.01,0.02,0.01,
+                                      0.,0.01,0.,
+                                      0.02,0.02,0.02))
+
+
     # void = Voidtile()
     # vv = STPtile("data/stp/ZCYS.stp", (-5,-5,-5,5,5,5,0.,0.,0.,10,10,10))
     # tileHandler = TileHandler(typeList=['pp','TTx0','TTx180','vv'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
@@ -116,18 +136,37 @@ if __name__ == "__main__":
     # tileHandler.constantlize_compatibility()
 
     # void = Voidtile()
-    tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-    tileHandler = TileHandler(typeList=['pp', 'TTx0', 'TTx180'], 
-                          direction=(('back',"front"),("left","right"),("top","bottom")),
-                          direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
-    tileHandler.selfConnectable(typeName=['pp','TTx0', 'TTx180'],value=1)
-    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
-    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
-    tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=0,dual=True)
-    tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
-    tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
+    # tileHandler = TileHandler(typeList=['pp','TTx0','TTx180'], direction=(('back',"front"),("left","right"),("top","bottom")), direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    # tileHandler = TileHandler(typeList=['pp', 'TTx0', 'TTx180'], 
+    #                       direction=(('back',"front"),("left","right"),("top","bottom")),
+    #                       direction_map={"top":0,"right":1,"bottom":2,"left":3,"back":4,"front":5})
+    # tileHandler.selfConnectable(typeName=['pp','TTx0', 'TTx180'],value=1)
+    # tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx0','TTx180'],direction="isotropy",value=1,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx0',],direction="isotropy",value=1,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx0',],direction="right",value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTx180',],direction="left",value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='TTx180',toTypeName=[ 'TTx180',],direction=["left","right"],value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
+    # tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
+
+    tileHandler = TileHandler(typeList=['pp', 'TTy0', 'TTy180'], 
+                              direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
+                              direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
+    tileHandler.selfConnectable(typeName=['pp','TTy0', 'TTy180',],value=1)
+    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTy0','TTy180'],direction="isotropy",value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy0',],direction="isotropy",value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTy0',],direction="y+",value=0,dual=True)
+    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTy180',],direction="y-",value=0,dual=True)
+    tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy180',],direction=["y+","y-"],value=0,dual=True)
+    tileHandler.setConnectiability(fromTypeName='TTy0',toTypeName=[ 'TTy0',],direction=["y+","y-"],value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTz0','TTz180'],direction="isotropy",value=1,dual=True)
+    tileHandler.register(['pp','TTy0','TTy180'],[pp,TTy0,TTy180])
+
+
+
+
+
+
     tileHandler.constantlize_compatibility()
 
 
@@ -155,7 +194,7 @@ if __name__ == "__main__":
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
     prefix="可负/"
-    pathname= 'vtkf++weakTTx0TTx180voidcommon1.2p4333'
+    pathname= 'vtkf++weakTTz0TTz180voidnofilter1.2p4333hpdmoWFCsigmaNoSMWeight3B三明治'
     # rho_oped = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/npy/100.npy").reshape(-1, tileHandler.typeNum+1)
     # rho_oped = rho_oped[...,:3].reshape(-1,tileHandler.typeNum)
     # wfcEnd = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/npy/wfc_classical_end.npy").reshape(-1, tileHandler.typeNum)
@@ -164,6 +203,7 @@ if __name__ == "__main__":
     rho_oped=[]
     for i in range(tileHandler.typeNum):
         rho_oped.append(vtkinfo[f'theta{i}'][...,None])
+
     rho_oped = np.concatenate(rho_oped,axis=-1)
     rho_oped = rho_oped.reshape(-1,tileHandler.typeNum)
     from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
