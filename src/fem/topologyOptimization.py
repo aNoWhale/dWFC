@@ -326,20 +326,33 @@ location_fns = [load_location]
 # tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTy0','TTy180'],direction="isotropy",value=1,dual=True)
 
 
-tileHandler = TileHandler(typeList=['++weak', 'pillarx', 'pillary','pillarz','void'], 
+tileHandler = TileHandler(typeList=['++', 'TTy0', 'TTy180','void'], 
                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
-tileHandler.selfConnectable(typeName=['++weak', 'pillarx', 'pillary','pillarz','void'],value=1)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillarx', 'pillary','pillarz'],direction="isotropy",value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillarx'],direction=["x+",'x-'],value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillary'],direction=["y+",'y-'],value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillarz'],direction=["z+",'z-'],value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='pillarx',toTypeName=[ 'pillary','pillarz'],direction="isotropy",value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='pillary',toTypeName=[ 'pillarx','pillarz'],direction="isotropy",value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='pillarx',toTypeName=[ 'pillary'],direction=["z+","z-"],value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='pillarx',toTypeName=[ 'pillarz'],direction=["y+","y-"],value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='pillary',toTypeName=[ 'pillarz'],direction=["x+","x-"],value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak', 'pillarx', 'pillary','pillarz'],direction="isotropy",value=1,dual=True) 
+tileHandler.selfConnectable(typeName=['++','TTy0', 'TTy180','void'],value=1)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTy0','TTy180'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy0',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTy0',],direction="y+",value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTy180',],direction="y-",value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy180',],direction=["y+","y-"],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTy0',toTypeName=[ 'TTy0',],direction=["y+","y-"],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++','TTy0','TTy180'],direction="isotropy",value=1,dual=True)
+
+
+# tileHandler = TileHandler(typeList=['++weak', 'pillarx', 'pillary','pillarz','void'], 
+#                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
+#                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
+# tileHandler.selfConnectable(typeName=['++weak', 'pillarx', 'pillary','pillarz','void'],value=1)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillarx', 'pillary','pillarz'],direction="isotropy",value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillarx'],direction=["x+",'x-'],value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillary'],direction=["y+",'y-'],value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'pillarz'],direction=["z+",'z-'],value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='pillarx',toTypeName=[ 'pillary','pillarz'],direction="isotropy",value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='pillary',toTypeName=[ 'pillarx','pillarz'],direction="isotropy",value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='pillarx',toTypeName=[ 'pillary'],direction=["z+","z-"],value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='pillarx',toTypeName=[ 'pillarz'],direction=["y+","y-"],value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='pillary',toTypeName=[ 'pillarz'],direction=["x+","x-"],value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak', 'pillarx', 'pillary','pillarz'],direction="isotropy",value=1,dual=True) 
 
 # tileHandler = TileHandler(typeList=['++weak', 'pillar','void'], 
 #                           direction=(('back',"front"),("left","right"),("top","bottom")),
@@ -374,10 +387,10 @@ print(tileHandler)
 
 from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
 # p=[4,3,3]
-# p=[4,3,3,3]
+p=[4,3,3,3]
 # p=[3,3,3,3]
 
-p=[4,3,3,3,3]
+# p=[4,3,3,3,3]
 
 assert len(p)==len(tileHandler.typeList),f"p length {len(p)} must equal to tile types num {len(tileHandler.typeList)}"
 
@@ -487,9 +500,9 @@ alpha1=0.3
 
 vt=0.5
 vu0=0.3
-# vu1=0.15
-# vu2=0.15
-# v0=0.3
+vu1=0.15
+vu2=0.15
+# v0=0.15
 v1=0.1
 v2=0.1
 v3=0.1
@@ -501,8 +514,8 @@ constraint_items = [
     # 约束2：材料选择损失（原有逻辑，保留）
     ("material_selection_loss", lambda rho: material_selection_loss(rho)),
     (f"0_upper_bound:{vu0}", lambda rho: upper_bound_constraint(rho, 0, vu0)),
-    # (f"1_upper_bound:{vu1}", lambda rho: upper_bound_constraint(rho, 1, vu1)),
-    # (f"2_upper_bound:{vu2}", lambda rho: upper_bound_constraint(rho, 2, vu2)),
+    (f"1_upper_bound:{vu1}", lambda rho: upper_bound_constraint(rho, 1, vu1)),
+    (f"2_upper_bound:{vu2}", lambda rho: upper_bound_constraint(rho, 2, vu2)),
 
     # (f"0_lower_bound:{v0}", lambda rho: lower_bound_constraint(rho, 0, v0)),
     (f"1_lower_bound:{v1}", lambda rho: lower_bound_constraint(rho, 1, v1)),
