@@ -54,4 +54,4 @@ class TileKernelInterpreter:
                     print(f"Loaded Kernel for * {mat_type} * from {file_path}")
             except Exception as e:
                 print(f"Error loading {file_path}: {e}")
-        self.kernels = np.clip(np.array(kernels),1e-12,1)  # 形状：(tileNum+1, 6, 6)（含void）
+        self.kernels = np.clip(np.array(kernels),1e-9,1)  # 形状：(tileNum+1, 6, 6)（含void）

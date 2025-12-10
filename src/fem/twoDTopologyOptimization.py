@@ -18,7 +18,7 @@ import meshio
 import jax
 import jax_smi
 jax_smi.initialise_tracking()
-jax.config.update('jax_disable_jit', True)
+# jax.config.update('jax_disable_jit', True)
 jax.config.update("jax_enable_x64", True)
 from functools import partial
 import jax.numpy as np
@@ -91,7 +91,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., -1]) #-0.3
+            return np.array([0., -10]) #-0.3
         return [surface_map]
 
     def set_params(self, params):
@@ -120,27 +120,43 @@ class Elasticity(Problem):
         return val
     
 
-    # def compute_von_mises(self, sol):
-    #     # 停止梯度：后处理无需梯度跟踪
-    #     weights = jax.lax.stop_gradient(self.internal_vars[0])  # (num_cells, num_quads, tiletypes)
-    #     u_grad = jax.lax.stop_gradient(self.fe.sol_to_grad(sol))  # 4维：(num_cells, num_quads, dim, dim)
-    #     sigma = self.sigmaInterpreter(u_grad, weights)  # 4维：(num_cells, num_quads, dim, dim)
-    #     dim = self.dim  # 3（三维问题）
-    #     sigma_tr = np.trace(sigma, axis1=2, axis2=3)  # 形状：(num_cells, num_quads)
-    #     sigma_spherical = (sigma_tr / dim)[..., None, None] * np.eye(dim)[None, None, :, :]  # 4维：(num_cells, num_quads, dim, dim)
-    #     s_dev = sigma - sigma_spherical  # 4维：(num_cells, num_quads, dim, dim)
-    #     vm_gauss = np.sqrt(3. / 2. * np.sum(s_dev **2, axis=(2, 3)))  # 形状：(num_cells, num_quads)
-    #     cells_JxW = self.JxW[:, 0, :]  # 形状：(num_cells, num_quads)
-    #     cell_volumes = np.sum(cells_JxW, axis=1)  # 形状：(num_cells,)
-    #     cell_vm = np.sum(vm_gauss * cells_JxW, axis=1) / cell_volumes  # 形状：(num_cells,)
-    #     total_volume = np.sum(cells_JxW)
-    #     avg_vm = np.sum(vm_gauss * cells_JxW) / total_volume  # 标量
-    #     return {
-    #         'cell_von_mises': cell_vm,
-    #         'avg_von_mises': avg_vm,
-    #         'gauss_von_mises': vm_gauss
-    #     }
-# Specify mesh-related information. We use first-order quadrilateral element.
+    def compute_von_mises(self, sol):
+        # 停止梯度：后处理无需梯度跟踪
+        weights = jax.lax.stop_gradient(self.internal_vars[0])  # (num_cells, num_quads, tiletypes)
+        u_grad = jax.lax.stop_gradient(self.fe.sol_to_grad(sol))  # 4维：(num_cells, num_quads, dim, dim)
+        u_grad_shape=u_grad.shape
+        weights_shape=weights.shape
+        sigma = jax.vmap(self.sigmaInterpreter,in_axes=(0,0),out_axes=0)(u_grad.reshape(-1,u_grad_shape[-2],u_grad_shape[-1]), weights.reshape(-1,weights_shape[-1]))  # 4维：(num_cells, num_quads, dim, dim)
+        sigma = sigma.reshape(u_grad_shape)
+        # 二维形式的 von Mises 应力计算
+        # 应力张量 sigma 的形状：(num_cells, num_quads, 2, 2)
+        # 提取应力分量
+        sigma_xx = sigma[..., 0, 0]  # (num_cells, num_quads)
+        sigma_yy = sigma[..., 1, 1]  # (num_cells, num_quads)
+        sigma_xy = sigma[..., 0, 1]  # (num_cells, num_quads)
+        # 二维平面应力 von Mises 公式
+        vm_gauss = np.sqrt(sigma_xx**2 - sigma_xx*sigma_yy + sigma_yy**2 + 3*sigma_xy**2)
+        
+        # 使用高斯点积分权重计算单元平均值
+        cells_JxW = self.JxW[:, 0, :]  # 形状：(num_cells, num_quads)
+        cell_volumes = np.sum(cells_JxW, axis=1)  # 形状：(num_cells,)
+        cell_vm = np.sum(vm_gauss * cells_JxW, axis=1) / cell_volumes  # 形状：(num_cells,)
+        
+        # 计算全局平均值
+        total_volume = np.sum(cells_JxW)
+        avg_vm = np.sum(vm_gauss * cells_JxW) / total_volume  # 标量
+        
+        return {
+            'cell_von_mises': cell_vm,
+            'avg_von_mises': avg_vm,
+            'gauss_von_mises': vm_gauss
+        }
+
+
+
+
+# Specify mesh-related information. We use first-order quadr
+# ilateral element.
 ele_type = 'QUAD4'
 cell_type = get_meshio_cell_type(ele_type)
 Lx, Ly = 60., 30.
@@ -151,7 +167,7 @@ mshname=f"L{Lx}{Ly}N{Nx}{Ny}.msh"
 mshname4ad=f"L{Lx}{Ly}N{Nx}{Ny}ad.msh"
 
 if not os.path.exists(f"data/msh/{mshname}"):
-    meshio_mesh = rectangle_mesh(Nx=Nx*kernel_size, Ny=Ny*kernel_size, domain_x=Lx*kernel_size, domain_y=Ly*kernel_size)
+    meshio_mesh = rectangle_mesh(Nx=Nx*kernel_size, Ny=Ny*kernel_size, domain_x=Lx, domain_y=Ly)
     meshio_mesh4ad = rectangle_mesh(Nx=Nx, Ny=Ny, domain_x=Lx, domain_y=Ly)
     meshio.write(mshname,meshio_mesh)
     meshio.write(mshname4ad,meshio_mesh4ad)
@@ -168,8 +184,8 @@ mesh4ad = Mesh(meshio_mesh4ad.points, meshio_mesh4ad.cells_dict[cell_type])
 
 """bend"""
 def fixed_location(point):
-    return np.logical_or(np.isclose(point[0], 0., atol=0.1+1e-5),
-                          np.isclose(point[0], Lx, atol=Lx*0.1+1e-5))
+    return np.logical_or(np.isclose(point[0], 0., atol=1+1e-5),
+                          np.isclose(point[0], Lx, atol=1+1e-5))
 
 def load_location(point):
     return np.logical_and(np.isclose(point[0], Lx/2, atol=0.1*Lx+1e-5),
@@ -184,72 +200,96 @@ dirichlet_bc_info = [[fixed_location]*2, [0, 1], [dirichlet_val]*2]
 
 location_fns = [load_location]
 
-tileHandler = TileHandler(typeList=['a','b','c','d','e','void'],direction=(('y+',"y-"),("x-","x+"),))
-# from src.dynamicGenerator.TileImplement.Dimension2.LinePath import LinePath
-# tileHandler.register(typeName='a',class_type=LinePath(['da-bc','cen-cd'],color='blue'))
-# tileHandler.register(typeName='b',class_type=LinePath(['ab-cd','cen-da'],color='green'))
-# tileHandler.register(typeName='c',class_type=LinePath(['da-bc','cen-ab'],color='yellow'))
-# tileHandler.register(typeName='d',class_type=LinePath(['ab-cd','cen-bc'],color='red'))
-# tileHandler.register(typeName='e',class_type=LinePath(['da-bc','ab-cd'],color='magenta'))
+# tileHandler = TileHandler(typeList=['a','b','c','d','e','void'],direction=(('y+',"y-"),("x-","x+"),))
+# tileHandler.selfConnectable(typeName="e",direction='isotropy',value=1)
 
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','d','b'],direction='y-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','d','a'],direction='x-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','b','a'],direction='x+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName='c',direction='y+',value=1,dual=True)
+
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',direction='x-',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName='d',direction='x+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a','b','d','e'],direction='y+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a'],direction='y-',value=-1,dual=True)
+
+
+
+# tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','a','c'],direction='x-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','a','b'],direction='y+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','c','b'],direction='y-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='b',toTypeName='d',direction='x+',value=1,dual=True)
+
+# tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',direction='y+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',direction='y-',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='b',toTypeName=['a','b','c','e'],direction='x+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='b',toTypeName=['b'],direction='x-',value=-1,dual=True)
+
+
+
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','d','a','b'],direction='y+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','d','a','c'],direction='x-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','b','c'],direction='x+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',direction='y-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',direction='x-',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName='d',direction='x+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c'],direction='y+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['b','c','d','e'],direction='y-',value=-1,dual=True)
+
+# tileHandler.setConnectiability(fromTypeName='d',toTypeName=['e','c','a','b'],direction='x+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='d',toTypeName=['e','a','b','d'],direction='y+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='d',toTypeName=['e','c','b','d'],direction='y-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='d',toTypeName='b',direction='x-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='y+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='y-',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='d',toTypeName=['d'],direction='x+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='d',toTypeName=['a','c','d','e'],direction='x-',value=-1,dual=True)
+
+# tileHandler.setConnectiability(fromTypeName='e',toTypeName='a',direction='y+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='e',toTypeName='b',direction='x+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='e',toTypeName='c',direction='y-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='e',toTypeName='d',direction='x-',value=1,dual=True)
+
+
+# tileHandler.selfConnectable(typeName="void",direction='isotropy',value=1)
+# tileHandler.setConnectiability(fromTypeName='void',toTypeName=['a','b','c','d','e'],direction=['x+','x-','y+','y-'],value=1,dual=True)
+
+
+
+
+
+
+tileHandler = TileHandler(typeList=['a','c','e','void'],direction=(('y+',"y-"),("x-","x+"),))
 tileHandler.selfConnectable(typeName="e",direction='isotropy',value=1)
 
-tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','d','b'],direction='y-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','d','a'],direction='x-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','b','a'],direction='x+',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c',],direction='y-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','a'],direction='x-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','a'],direction='x+',value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='a',toTypeName='c',direction='y+',value=1,dual=True)
 
-tileHandler.setConnectiability(fromTypeName='a',toTypeName='b',direction='x-',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='a',toTypeName='d',direction='x+',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a','b','d','e'],direction='y+',value=-1,dual=True)
+
+
+tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a','e'],direction='y+',value=-1,dual=True)
 tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a'],direction='y-',value=-1,dual=True)
 
 
 
-tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','a','c'],direction='x-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','a','b'],direction='y+',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='b',toTypeName=['e','d','c','b'],direction='y-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='b',toTypeName='d',direction='x+',value=1,dual=True)
-
-tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',direction='y+',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='b',toTypeName='c',direction='y-',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='b',toTypeName=['a','b','c','e'],direction='x+',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='b',toTypeName=['b'],direction='x-',value=-1,dual=True)
-
-
-
-
-
-tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','d','a','b'],direction='y+',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','d','a','c'],direction='x-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','b','c'],direction='x+',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a'],direction='y+',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','c'],direction='x-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','c'],direction='x+',value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',direction='y-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='c',toTypeName='b',direction='x-',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='c',toTypeName='d',direction='x+',value=-1,dual=True)
 tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c'],direction='y+',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='c',toTypeName=['b','c','d','e'],direction='y-',value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c','e'],direction='y-',value=-1,dual=True)
 
-
-
-
-tileHandler.setConnectiability(fromTypeName='d',toTypeName=['e','c','a','b'],direction='x+',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='d',toTypeName=['e','a','b','d'],direction='y+',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='d',toTypeName=['e','c','b','d'],direction='y-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='d',toTypeName='b',direction='x-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='y+',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='d',toTypeName='c',direction='y-',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='d',toTypeName=['d'],direction='x+',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='d',toTypeName=['a','c','d','e'],direction='x-',value=-1,dual=True)
 
 tileHandler.setConnectiability(fromTypeName='e',toTypeName='a',direction='y+',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='e',toTypeName='b',direction='x+',value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='e',toTypeName='c',direction='y-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='e',toTypeName='d',direction='x-',value=1,dual=True)
-
 
 
 tileHandler.selfConnectable(typeName="void",direction='isotropy',value=1)
-tileHandler.setConnectiability(fromTypeName='void',toTypeName=['a','b','c','d','e'],direction=['x+','x-','y+','y-'],value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='void',toTypeName=['a','c','e'],direction=['x+','x-','y+','y-'],value=1,dual=True)
+
+
 
 
 
@@ -260,7 +300,9 @@ print(tileHandler)
 
 from src.fem.SigmaInterpreter_constitutive_2D import SigmaInterpreter
 # p=[4,3,3]
-p=[3,3,3,3,4,3]
+# p=[3,3,3,3,4,3]
+p=[3,3,3,3]
+
 assert len(p)==len(tileHandler.typeList),f"p length {len(p)} must equal to tile types num {len(tileHandler.typeList)}"
 sigmaInterpreter=SigmaInterpreter(p=p,) #3,4 445 544 
 print(sigmaInterpreter)
@@ -296,12 +338,12 @@ def output_sol(params, obj_val,sol_list):
     sol = sol_list[0]
     vtu_path = os.path.join(data_path, f'vtk/sol_{output_sol.counter:03d}.vtu')
     cell_infos = [(f'theta{i}', params[:, i]) for i in range(params.shape[-1])]
-    mask = np.max(params, axis=-1) > 0.4
+    mask = np.max(params, axis=-1) > 0.5
     all = np.where(mask, np.argmax(params,axis=-1), np.nan)
     cell_infos.append( ('all', all) )
-    # mises = problem.compute_von_mises(sol)
+    mises = problem.compute_von_mises(sol)
     # cell_infos.extend([(f'{key}', item ) for key,item in mises.items()])
-    # cell_infos.append(('cell_von_mises', mises["cell_von_mises"] ))
+    cell_infos.append(('cell_von_mises', mises["cell_von_mises"] ))
     save_sol(problem.fe, np.hstack((sol, np.zeros((len(sol), 1)))), vtu_path, 
              cell_infos=cell_infos)
     # print(f"compliance = {obj_val}")
@@ -363,11 +405,17 @@ def lower_bound_constraint(rho, index, vr):
 
 # ========== 3. 定义所有约束项（自动遍历的核心） ==========
 vt=0.6
-vue=0.2
-va=0.1
-vb=0.1
-vc=0.1
-vd=0.1
+vue=0.35
+vua=0.2
+# vub=0.15
+vuc=0.2
+# vud=0.15
+
+va=0.15
+# vb=0.1
+vc=0.15
+# vd=0.1
+
 
 
 constraint_items = [
@@ -375,11 +423,16 @@ constraint_items = [
     ("total_non_void_volume_without_void", lambda rho: np.mean(np.sum(rho, axis=-1)-rho[:,-1]) / vt - 1.0),
     # 约束2：材料选择损失（原有逻辑，保留）
     ("material_selection_loss", lambda rho: material_selection_loss(rho)),
-    (f"target_material_upper_bound:{vue}", lambda rho: upper_bound_constraint(rho, 4, vue)),
+    (f"target_material_upper_bound:{vue}", lambda rho: upper_bound_constraint(rho, 2, vue)),
+    (f"1_upper_bound:{vua}", lambda rho: upper_bound_constraint(rho, 0, vua)),
+    # (f"2_upper_bound:{vub}", lambda rho: upper_bound_constraint(rho, 1, vub)),
+    (f"3_upper_bound:{vuc}", lambda rho: upper_bound_constraint(rho, 1, vuc)),
+    # (f"4_upper_bound:{vud}", lambda rho: upper_bound_constraint(rho, 3, vud)),
+
     (f"1_lower_bound:{va}", lambda rho: lower_bound_constraint(rho, 0, va)),
-    (f"2_lower_bound:{vb}", lambda rho: lower_bound_constraint(rho, 1, vb)),
-    (f"3_lower_bound:{vc}", lambda rho: lower_bound_constraint(rho, 2, vc)),
-    (f"4_lower_bound:{vd}", lambda rho: lower_bound_constraint(rho, 3, vd)),
+    # (f"2_lower_bound:{vb}", lambda rho: lower_bound_constraint(rho, 1, vb)),
+    (f"3_lower_bound:{vc}", lambda rho: lower_bound_constraint(rho, 1, vc)),
+    # (f"4_lower_bound:{vd}", lambda rho: lower_bound_constraint(rho, 3, vd)),
 
 ]
 
@@ -419,12 +472,14 @@ cell_centers = jax.lax.stop_gradient(compute_cell_centers(mesh4ad.points[mesh4ad
 wfc=lambda prob,key: waveFunctionCollapse(prob, A, D, tileHandler.opposite_dir_array, tileHandler.compatibility,key, cell_centers)
 
 # Finalize the details of the MMA optimizer, and solve the TO problem.
-optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNy':(Nx,Ny),'sensitivity_filtering':"nofilter",'filter_radius':1.2}
+optimizationParams = {'maxIters':201, 'movelimit':0.1, 'NxNy':(Nx,Ny),'sensitivity_filtering':"nofilter",'filter_radius':1.2}
 
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
-# rho_ini = rho_ini.at[:,1].set(0.2)
-# rho_ini = rho_ini.at[:,2].set(0.2)
+# rho_ini = rho_ini.at[:,0].set(0.3)
+# rho_ini = rho_ini.at[:,1].set(0.3)
+# rho_ini = rho_ini.at[:,2].set(0.3)
+# rho_ini = rho_ini.at[:,3].set(0.3)
 
 
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
@@ -466,8 +521,11 @@ plt.savefig("data/topo_obj.tiff")
 # rho_oped = np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180完全约束有filter/npy/rho_oped.npy")
 rho_oped = np.load("data/npy/rho_oped.npy")
 import src.WFC.classicalWFC as normalWFC
+
+#后处理环节
 wfc_classical_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler))
 np.save("data/npy/wfc_classical_end.npy",wfc_classical_end)
+
 
 types_str = ""
 for t in tileHandler.typeList:

@@ -212,7 +212,7 @@ def preprocess_compatibility(compatibility, compat_threshold=1e-3, eps=1e-5):
 
 
 @partial(jax.jit)
-def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, key, cell_centers, tau=0.1,alpha1=0.,*args, **kwargs):
+def waveFunctionCollapse(init_probs, A, D, dirs_opposite_index, compatibility, key, cell_centers, tau=0.1,alpha1=1.,*args, **kwargs): #0.5
     """WFC主函数：用vmap批量处理，适配可变邻居数（普通空间版本）"""
     n_cells, n_tiles = init_probs.shape
     eps = 1e-10

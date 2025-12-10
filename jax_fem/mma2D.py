@@ -521,7 +521,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         info={}
         # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
         alpha = 1
-        beta=0.8
+        beta=0.5 #0.8
         
         print(f"MMA solver...")
         print(f"collapsing...")
@@ -534,24 +534,36 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             # rho = applyDensityFilter(ft, rho)
             rho_c,_,_=WFC(rho.reshape(-1,tileNum),subkey)
             rho_c = rho_c.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
-            # rho = jax.nn.softmax(rho,axis=-1)
             # rho = heaviside(rho,2^(loop//10))
             # rho = smooth_heaviside(rho, beta=2**((loop-0.5)//5))
             rho = rho.reshape(-1,tileNum)
             rho = beta * rho_c + (1 - beta) * rho
             rho = rho/jnp.maximum(jnp.linalg.norm(rho,axis=-1,keepdims=True,ord=1), 1e-8)
-            rho = tileKernelInterpreter(rho.reshape(Nx,Ny,tileNum), Nx, Ny)
+
+            # rho = jax.nn.softmax(rho,axis=-1)
+
+            # rho = tileKernelInterpreter(rho.reshape(Nx,Ny,tileNum), Nx, Ny)
             rho = rho.reshape(-1,tileNum)
+            # rho = jnp.clip(rho,1e-10,1)
             return rho
         # 2. 对filter_chain构建VJP（关键：函数依赖输入r）
         def filter_chain_vjp(r):
             return filter_chain(r, WFC, ft,loop)
+        
+        def upsample_vjp(r):
+            r = tileKernelInterpreter(r.reshape(Nx,Ny,tileNum), Nx, Ny)
+            r = r.reshape(-1,tileNum)
+            r = jnp.clip(r,1e-10,1)
+            return r
 
         # 构建VJP：fwd_func返回(rho_f, vjp_fn)，其中vjp_fn用于计算梯度
-        rho_f_vjp, vjp_fn = jax.vjp(filter_chain_vjp, rho)
+        rho_f_vjp, vjp_fn_f = jax.vjp(filter_chain_vjp, rho)
 
+        rho_u_vjp, vjp_fn_u = jax.vjp(upsample_vjp, rho_f_vjp)
 
         rho_f = rho_f_vjp
+        rho_u = rho_u_vjp
+
         rfmean = jnp.mean(rho_f)
         rfmin = jnp.min(rho_f)
         rfmax = jnp.max(rho_f)
@@ -561,19 +573,24 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         rfmean_last = rfmean
         rfmin_last = rfmin
         rfmax_last = rfmax
-        np.save(f"data/npy/{loop}",rho_f)
-        J, dJ_drho_f = objectiveHandle(rho_f)  # dJ_drho_f：目标函数对rho_f的梯度
+        np.save(f"data/npy/{loop}_u",rho_u)
+        np.save(f"data/npy/{loop}_f",rho_f)
+
+        J, dJ_drho_u = objectiveHandle(rho_u)  # dJ_drho_f：目标函数对rho_u的梯度
         vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
-        print(f"dJ_drho_f.shape: {dJ_drho_f.shape}\ndvc_drho_f.shape: {dvc_drho_f.shape}")
-        print(f"dJ_drho_f.max: {jnp.max(dJ_drho_f)}")
-        print(f"dJ_drho_f.min: {jnp.min(dJ_drho_f)}")
+        print(f"dJ_drho_u.shape: {dJ_drho_u.shape}\ndvc_drho_f.shape: {dvc_drho_f.shape}")
+        print(f"dJ_drho_u.max: {jnp.max(dJ_drho_u)}")
+        print(f"dJ_drho_u.min: {jnp.min(dJ_drho_u)}")
         print(f"dvc_drho_f.max: {jnp.max(dvc_drho_f)}")
         print(f"dvc_drho_f.min: {jnp.min(dvc_drho_f)}")
 
         # # 关键：用vjp_fn计算rho对rho_f的梯度，再乘以dJ_drho_f（链式法则）
-        dJ_drho = vjp_fn(dJ_drho_f)[0]
-        vjp_batch = jax.vmap(vjp_fn, in_axes=0, out_axes=0)
-        dvc_drho = vjp_batch(dvc_drho_f)[0]
+        # 1. 目标函数梯度链：rho_u -> rho_f -> rho
+        dJ_drho_f = vjp_fn_u(dJ_drho_u)[0]  # 从 rho_u 传播到 rho_f
+        dJ_drho = vjp_fn_f(dJ_drho_f)[0]    # 从 rho_f 传播到 rho
+        # dJ_drho_u = vjp_fn_u(dJ_drho_u)[0]
+        vjp_batch_f = jax.vmap(vjp_fn_f, in_axes=0, out_axes=0)
+        dvc_drho = vjp_batch_f(dvc_drho_f)[0]
         print(f"dJ_drho.shape: {dJ_drho.shape}\ndvc_drho.shape: {dvc_drho.shape}")
         print(f"dJ_drho.max: {jnp.max(dJ_drho)}")   
         print(f"dJ_drho.min: {jnp.min(dJ_drho)}")
@@ -587,21 +604,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             dJ, dvc = applySensitivityFilter(ft, rho_f, dJ, dvc) #一直用的这个做++TT0TT180 完全约束f1 f1.5 p544 p444
             print(f"sensitivity filtering: common")
 
-        if sensitivity_filtering=="multi":
-            dJ, dvc = applySensitivityFilter_multi(ft, rho_f, dJ, dvc,beta=1.0)
-            print(f"sensitivity filtering: multi")
-        
-        if sensitivity_filtering=="chess":
-            dJ, dvc = applySensitivityFilter_chess(ft, rho_f, dJ, dvc)
-            print(f"sensitivity filtering: chess")
-        
-        if sensitivity_filtering=="void":
-            dJ, dvc = applySensitivityFilter_void(ft, rho_f, dJ, dvc)
-            print(f"sensitivity filtering: void")
 
-        if sensitivity_filtering=="max":
-            dJ, dvc = applySensitivityFilter_max(ft, rho_f, dJ, dvc)
-            print(f"sensitivity filtering: max")
 
 
 
@@ -675,11 +678,11 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         infos[loop]=info
     # jplotter.finalize()
     print(f"Total optimization time: {time.strftime('%H:%M:%S', time.gmtime(time.time()-allstart))} [s]")
-    return rho,infos
+    return rho_f,infos
 
 
 def compute_material_grayness(rho_f: jnp.ndarray, 
-                             threshold: float = 0.95):
+                             threshold: float = 0.8):
     """
     即插即用的多材料灰度监控函数
     
