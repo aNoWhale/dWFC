@@ -88,34 +88,51 @@ if __name__ == "__main__":
     # (x_min, y_min, z_min, x_max, y_max, z_max,
     #  center_x, center_y, center_z,
     #  size_x, size_y, size_z)
-    pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
-                                  0.01,0.02,0.01,
-                                  0.,0.01,0.,
-                                  0.02,0.02,0.02))
-    TTx0=STPtile("data/stp/TTx0.stp",(-0.01,0.,-0.01,
-                                      0.01,0.02,0.01,
-                                      0.,0.01,0.,
-                                      0.02,0.02,0.02))
-    TTx180=STPtile("data/stp/TTx180.stp",(-0.01,0.,-0.01,
-                                          0.01,0.02,0.01,
-                                          0.,0.01,0.,
-                                          0.02,0.02,0.02))
-    TTz0 = STPtile('data/stp/TTz0.STEP',(-0.01, 0.,-0.01,
-                                          0.01,0.02,0.01,
-                                          0.,0.0,0.01,
-                                          0.02,0.02,0.02))
-    TTz180 = STPtile('data/stp/TTz180.STEP',(-0.01,0.,-0.01,
-                                          0.01,0.02,0.01,
-                                          0.,0.,0.01,
-                                          0.02,0.02,0.02))
-    TTy0=STPtile("data/stp/TTy0.STEP",(-0.01,0.,-0.01,
-                                      0.01,0.02,0.01,
-                                      0.,0.01,0.,
-                                      0.02,0.02,0.02))
-    TTy180=STPtile("data/stp/TTy180.STEP",(-0.01,0.,-0.01,
-                                      0.01,0.02,0.01,
-                                      0.,0.01,0.,
-                                      0.02,0.02,0.02))
+    # pp=STPtile("data/stp/++.stp",(-0.01,0.,-0.01,
+    #                               0.01,0.02,0.01,
+    #                               0.,0.01,0.,
+    #                               0.02,0.02,0.02))
+    # TTx0=STPtile("data/stp/TTx0.stp",(-0.01,0.,-0.01,
+    #                                   0.01,0.02,0.01,
+    #                                   0.,0.01,0.,
+    #                                   0.02,0.02,0.02))
+    # TTx180=STPtile("data/stp/TTx180.stp",(-0.01,0.,-0.01,
+    #                                       0.01,0.02,0.01,
+    #                                       0.,0.01,0.,
+    #                                       0.02,0.02,0.02))
+    # TTz0 = STPtile('data/stp/TTz0.STEP',(-0.01, 0.,-0.01,
+    #                                       0.01,0.02,0.01,
+    #                                       0.,0.0,0.01,
+    #                                       0.02,0.02,0.02))
+    # TTz180 = STPtile('data/stp/TTz180.STEP',(-0.01,0.,-0.01,
+    #                                       0.01,0.02,0.01,
+    #                                       0.,0.,0.01,
+    #                                       0.02,0.02,0.02))
+    # TTy0=STPtile("data/stp/TTy0.STEP",(-0.01,0.,-0.01,
+    #                                   0.01,0.02,0.01,
+    #                                   0.,0.01,0.,
+    #                                   0.02,0.02,0.02))
+    # TTy180=STPtile("data/stp/TTy180.STEP",(-0.01,0.,-0.01,
+    #                                   0.01,0.02,0.01,
+    #                                   0.,0.01,0.,
+    #                                   0.02,0.02,0.02))
+
+
+    a=STPtile("data/stp/a.STEP",(-0.45,-0.45,-0.45,
+                                      0.45,0.45,0.45,
+                                      0.,0.,0.,
+                                      0.9,0.9,0.9))
+    c=STPtile("data/stp/c.STEP",(-0.45,-0.45,-0.45,
+                                    0.45,0.45,0.45,
+                                    0.,0.,0.,
+                                    0.9,0.9,0.9))
+    e=STPtile("data/stp/e.STEP",(-0.45,-0.45,-0.45,
+                                    0.45,0.45,0.45,
+                                    0.,0.,0.,
+                                    0.9,0.9,0.9))
+    void = Voidtile()
+    
+
 
 
     # void = Voidtile()
@@ -149,23 +166,51 @@ if __name__ == "__main__":
     # tileHandler.setConnectiability(fromTypeName='TTx0',toTypeName=[ 'TTx0',],direction=["left","right"],value=0,dual=True)
     # tileHandler.register(['pp','TTx0','TTx180'],[pp,TTx0,TTx180])
 
-    tileHandler = TileHandler(typeList=['pp', 'TTy0', 'TTy180'], 
-                              direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
-                              direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
-    tileHandler.selfConnectable(typeName=['pp','TTy0', 'TTy180',],value=1)
-    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTy0','TTy180'],direction="isotropy",value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy0',],direction="isotropy",value=1,dual=True)
-    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTy0',],direction="y+",value=0,dual=True)
-    tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTy180',],direction="y-",value=0,dual=True)
-    tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy180',],direction=["y+","y-"],value=0,dual=True)
-    tileHandler.setConnectiability(fromTypeName='TTy0',toTypeName=[ 'TTy0',],direction=["y+","y-"],value=0,dual=True)
-    # tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTz0','TTz180'],direction="isotropy",value=1,dual=True)
-    tileHandler.register(['pp','TTy0','TTy180'],[pp,TTy0,TTy180])
+    # tileHandler = TileHandler(typeList=['pp', 'TTy0', 'TTy180'], 
+    #                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
+    #                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
+    # tileHandler.selfConnectable(typeName=['pp','TTy0', 'TTy180',],value=1)
+    # tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTy0','TTy180'],direction="isotropy",value=1,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy0',],direction="isotropy",value=1,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTy0',],direction="y+",value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='pp',toTypeName=[ 'TTy180',],direction="y-",value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy180',],direction=["y+","y-"],value=0,dual=True)
+    # tileHandler.setConnectiability(fromTypeName='TTy0',toTypeName=[ 'TTy0',],direction=["y+","y-"],value=0,dual=True)
+    # # tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTz0','TTz180'],direction="isotropy",value=1,dual=True)
+    # tileHandler.register(['pp','TTy0','TTy180'],[pp,TTy0,TTy180])
+
+
+    tileHandler = TileHandler(typeList=['a','c','e','void'],direction=(('y+',"y-"),("x-","x+"),))
+    tileHandler.selfConnectable(typeName="e",direction='isotropy',value=1)
+
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c',],direction='y-',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','a'],direction='x-',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','a'],direction='x+',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName='c',direction='y+',value=1,dual=True)
 
 
 
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a','e'],direction='y+',value=-1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a'],direction='y-',value=-1,dual=True)
 
 
+
+    tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a'],direction='y+',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','c'],direction='x-',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','c'],direction='x+',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',direction='y-',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c'],direction='y+',value=-1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c','e'],direction='y-',value=-1,dual=True)
+
+
+    tileHandler.setConnectiability(fromTypeName='e',toTypeName='a',direction='y+',value=1,dual=True)
+    tileHandler.setConnectiability(fromTypeName='e',toTypeName='c',direction='y-',value=1,dual=True)
+
+
+    tileHandler.selfConnectable(typeName="void",direction='isotropy',value=1)
+    tileHandler.setConnectiability(fromTypeName='void',toTypeName=['a','c','e'],direction=['x+','x-','y+','y-'],value=1,dual=True)
+
+    tileHandler.register(['a','c','e','void'],[a,c,e,void])
 
     tileHandler.constantlize_compatibility()
 
@@ -181,10 +226,12 @@ if __name__ == "__main__":
     import meshio
     ele_type = 'HEX8'
     cell_type = get_meshio_cell_type(ele_type)
-    Lx, Ly, Lz = 40., 5., 20.
-    Nx, Ny, Nz = 40, 5, 20
+    # Lx, Ly, Lz = 40., 5., 20.
+    # Nx, Ny, Nz = 40, 5, 20
     # Lx, Ly, Lz = 20., 5., 10.
     # Nx, Ny, Nz = 20, 5, 10
+    Lx, Ly, Lz = 60., 30., 1.
+    Nx, Ny, Nz = 60, 30, 1
     create_directory_if_not_exists("data/msh")
     mshname = f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}.msh"
     if not os.path.exists(f"data/msh/{mshname}"):
@@ -193,13 +240,14 @@ if __name__ == "__main__":
     else:
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
-    prefix="可负/"
-    pathname= 'vtkf++weakTTz0TTz180voidnofilter1.2p4333hpdmoWFCsigmaNoSMWeight3B三明治'
+    prefix="2D/"
+    pathname= 'vtkfacevoidnofilter1.2p3333SimpWFCsigma2D后处理过了'
+    print(f"{pathname}")
     # rho_oped = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/npy/100.npy").reshape(-1, tileHandler.typeNum+1)
     # rho_oped = rho_oped[...,:3].reshape(-1,tileHandler.typeNum)
     # wfcEnd = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/npy/wfc_classical_end.npy").reshape(-1, tileHandler.typeNum)
     from jax_fem.utils import extract_theta_from_vtu
-    vtkinfo = extract_theta_from_vtu(f'/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/sol_100.vtu')
+    vtkinfo = extract_theta_from_vtu(f'/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/sol_136.vtu')
     rho_oped=[]
     for i in range(tileHandler.typeNum):
         rho_oped.append(vtkinfo[f'theta{i}'][...,None])
@@ -208,10 +256,12 @@ if __name__ == "__main__":
     rho_oped = rho_oped.reshape(-1,tileHandler.typeNum)
     from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
     adj_csr = build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
+
     from src.WFC.mixWFC import waveFunctionCollapse as classicalWFC
     wfcEnd,_,_=classicalWFC(init_probs=rho_oped,adj_csr=adj_csr,tileHandler=tileHandler)
+
     print(f"wfc mean:{wfcEnd.mean()}")
-    mask=np.max(rho_oped,axis=-1,keepdims=False)>0.4
+    mask=np.max(rho_oped,axis=-1,keepdims=False)>0.5
     # 导出为STL（加速效果：比STP快10-20倍）
     export_cell_structures_stl(
         mesh=mesh,
@@ -219,5 +269,5 @@ if __name__ == "__main__":
         tileHandle=tileHandler,
         output_filename=f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/{pathname}.stl",
         mask=mask,
-        deflection=0.5  # 可调整：0.1（高精度慢）→ 1.0（低精度快）
+        deflection=1.0  # 可调整：0.1（高精度慢）→ 1.0（低精度快）
     )

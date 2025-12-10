@@ -4,8 +4,10 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
+os.environ["JAX_PLATFORMS"] = "cpu"
 import jax
-jax.config.update('jax_platform_name', 'cpu')  # 强制使用CPU
+# jax.config.update('jax_platform_name', 'cpu')  # 强制使用CPU
 # jax.config.update('jax_disable_jit', True)     # 调试时开启
 
 import jax.numpy as jnp

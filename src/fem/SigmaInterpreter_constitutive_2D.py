@@ -21,22 +21,68 @@ class SigmaInterpreter:
         self.nu=0.3
 
     # @partial(jax.jit, static_argnames=())
+    # def __call__(self, u_grad, weights, *args, **kwargs):
+    #     nu = self.nu
+    #     Emin= self.Emin
+    #     Emax= self.Emax
+    #     p = self.p
+    #     weights = weights / np.linalg.norm(weights, ord=1,axis=-1)  # 归一化
+    #     E = Emin + np.sum((Emax - Emin)*weights**p)
+    #     epsilon = 0.5*(u_grad + u_grad.T)
+    #     eps11 = epsilon[0, 0]
+    #     eps22 = epsilon[1, 1]
+    #     eps12 = epsilon[0, 1]
+    #     sig11 = E/(1 + nu)/(1 - nu)*(eps11 + nu*eps22) 
+    #     sig22 = E/(1 + nu)/(1 - nu)*(nu*eps11 + eps22)
+    #     sig12 = E/(1 + nu)*eps12
+    #     sigma = np.array([[sig11, sig12], [sig12, sig22]])
+    #     return sigma
+
     def __call__(self, u_grad, weights, *args, **kwargs):
         nu = self.nu
-        Emin= self.Emin
-        Emax= self.Emax
+        Emin = self.Emin
+        Emax = self.Emax
         p = self.p
-        weights = weights / np.linalg.norm(weights, ord=1,axis=-1)  # 归一化
-        E = Emin + np.sum((Emax - Emin)*weights**p)
-        epsilon = 0.5*(u_grad + u_grad.T)
-        eps11 = epsilon[0, 0]
-        eps22 = epsilon[1, 1]
-        eps12 = epsilon[0, 1]
-        sig11 = E/(1 + nu)/(1 - nu)*(eps11 + nu*eps22) 
-        sig22 = E/(1 + nu)/(1 - nu)*(nu*eps11 + eps22)
-        sig12 = E/(1 + nu)*eps12
-        sigma = np.array([[sig11, sig12], [sig12, sig22]])
+        
+        # 归一化权重
+        weights = weights / np.linalg.norm(weights, ord=1, axis=-1, keepdims=True)
+        
+        # 计算弹性模量E
+        # weights形状假设为(..., tiletypes)
+        # 对最后一个维度求和得到每个点的E
+        E = Emin + np.sum((Emax - Emin) * weights**p, axis=-1)
+        
+        # 计算应变张量 epsilon = 0.5*(u_grad + u_grad^T)
+        # 对于2D情况，最后两个维度是(2,2)
+        # 使用转置交换最后两个轴
+        u_grad_T = np.swapaxes(u_grad, -1, -2)
+        epsilon = 0.5 * (u_grad + u_grad_T)
+        
+        # 提取应变分量
+        eps11 = epsilon[..., 0, 0]
+        eps22 = epsilon[..., 1, 1]
+        eps12 = epsilon[..., 0, 1]
+        
+        # 计算应力分量
+        sig11 = E / (1 + nu) / (1 - nu) * (eps11 + nu * eps22)
+        sig22 = E / (1 + nu) / (1 - nu) * (nu * eps11 + eps22)
+        sig12 = E / (1 + nu) * eps12
+        
+        # 构建应力张量，兼容任意前导维度
+        # 先获取输出张量的形状
+        output_shape = eps11.shape + (2, 2)
+        
+        # 创建输出张量
+        sigma = np.zeros(output_shape, dtype=sig11.dtype)
+        
+        # 填充应力分量
+        sigma[..., 0, 0] = sig11
+        sigma[..., 1, 1] = sig22
+        sigma[..., 0, 1] = sig12
+        sigma[..., 1, 0] = sig12  # 对称分量
+        
         return sigma
+
 
     def __repr__(self) -> str:
         line="SigmaInterpreter for 2D problems\n"
