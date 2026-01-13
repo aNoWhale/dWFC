@@ -55,3 +55,51 @@ class TileKernelInterpreter:
             except Exception as e:
                 print(f"Error loading {file_path}: {e}")
         self.kernels = np.clip(np.array(kernels),1e-9,1)  # 形状：(tileNum+1, 6, 6)（含void）
+
+
+class TileKernelInterpreter3D:
+    def __init__(self, typeList:List,folderPath:str=None,kernel_size=3,*args,** kwargs) -> None:
+        self.typeList = typeList
+        self.folderPath = folderPath
+        self.kernels:np.ndarray=None # array [[kernel1],[kernel2],[kernel3],...]
+        self.kernel_size=kernel_size
+        self.p= np.array(kwargs.pop('p',np.array([3.]*len(self.typeList))))
+        self._buildKernels()  # 构建包含void的刚度矩阵列表
+    
+
+    # @partial(jax.jit, static_argnames=())
+    def __call__(self, weights, nx, ny, nz,*args, **kwargs):
+        def upsample(arr:np.ndarray, kernel:np.ndarray):
+            # 步骤1：扩展原始数组维度 → (Nx, 1, Ny, 1)，为广播做准备
+            arr_expanded = arr[:, np.newaxis, :, np.newaxis, :, np.newaxis]  # 插入两个长度为1的轴
+            block_array = arr_expanded * kernel[None,:, None, :, None, :]  # 广播乘法，结果形状为 (Nx, 3, Ny, 3, Nz, 3)
+            upsampled = block_array.reshape(nx * self.kernel_size, ny * self.kernel_size, nz * self.kernel_size)
+            return upsampled
+        batch_upsampled = jax.vmap(upsample, in_axes=(3, 0),out_axes=3)(weights, self.kernels)
+        return batch_upsampled
+
+    def __repr__(self) -> str:
+        if not self.debug:
+            header = f"{'idx':>3}  {'type':>5}"
+            bar = "-" * len(header)
+            lines = [header, bar]
+            for ext_idx, typ in enumerate(self.typeList):
+                # 安全地把“外部索引”映射到“内部排序序号”
+                lines.append(f"{ext_idx:>3}  {typ:<12}")
+            return "\n".join(lines)
+        if self.debug:
+            return "debug mode"
+    
+    def _buildKernels(self):
+        kernels = []
+        for mat_type in self.typeList:
+            file_path = os.path.join(self.folderPath, f"{mat_type}.json")
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+
+                    kernels.append(data)
+                    print(f"Loaded Kernel for * {mat_type} * from {file_path}")
+            except Exception as e:
+                print(f"Error loading {file_path}: {e}")
+        self.kernels = np.clip(np.array(kernels),1e-8,1)  # 形状：(tileNum+1, 6, 6)（含void）

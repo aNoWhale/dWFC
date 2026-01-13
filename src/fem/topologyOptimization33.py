@@ -19,7 +19,7 @@ import meshio
 import jax
 import jax_smi
 jax_smi.initialise_tracking()
-# jax.config.update('jax_disable_jit', True)
+jax.config.update('jax_disable_jit', True)
 jax.config.update("jax_enable_x64", True)
 from functools import partial
 import jax.numpy as np
@@ -33,7 +33,6 @@ from jax_fem.problem import Problem
 from jax_fem.solver import solver, ad_wrapper
 from jax_fem.utils import save_sol
 from jax_fem.generate_mesh import get_meshio_cell_type, Mesh, rectangle_mesh, box_mesh_gmsh
-from jax_fem.mma import optimize
 
 from src.WFC.TileHandler_JAX import TileHandler
 from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
@@ -94,7 +93,7 @@ class Elasticity(Problem):
 
     def get_surface_maps(self):
         def surface_map(u, x):
-            return np.array([0., -3, 0.]) #-0.3
+            return np.array([0., -1, 0.]) #-0.3
         return [surface_map]
 
     def set_params(self, params):
@@ -174,19 +173,34 @@ ele_type = 'HEX8'
 cell_type = get_meshio_cell_type(ele_type)
 # Lx, Ly, Lz = 60., 10., 30.
 # Nx, Ny, Nz = 60, 10, 30
-# Lx, Ly, Lz = 5., 2., 5.
-# Nx, Ny, Nz = 5, 2, 5
-Lx, Ly, Lz = 40., 20., 5. 
-Nx, Ny, Nz = 40, 20, 5
-# Lx, Ly, Lz = 20., 5., 10. 
-# Nx, Ny, Nz = 20, 5, 10
+# Lx, Ly, Lz = 5., 5., 1.
+# Nx, Ny, Nz = 5, 5, 1
+# Lx, Ly, Lz = 40., 20., 5. 
+# Nx, Ny, Nz = 40, 20, 5
+kernel_size = 3
+Lx, Ly, Lz = 20., 10., 5. 
+Nx, Ny, Nz = 20, 10, 5
 create_directory_if_not_exists("data/msh")
+mshname_kernel=f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}_kernel{kernel_size}.msh"
 mshname=f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}.msh"
+
+if not os.path.exists(f"data/msh/{mshname_kernel}"):
+    meshio_mesh_kernel = box_mesh_gmsh(Nx=Nx*kernel_size,Ny=Ny*kernel_size,Nz=Nz*kernel_size,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type,name=mshname_kernel)
+
+else:
+    meshio_mesh_kernel = meshio.read(f"data/msh/{mshname_kernel}")
+
 if not os.path.exists(f"data/msh/{mshname}"):
     meshio_mesh = box_mesh_gmsh(Nx=Nx,Ny=Ny,Nz=Nz,domain_x=Lx,domain_y=Ly,domain_z=Lz,data_dir="data",ele_type=ele_type,name=mshname)
 else:
     meshio_mesh = meshio.read(f"data/msh/{mshname}")
+
+
+
+
+mesh_kernel = Mesh(meshio_mesh_kernel.points, meshio_mesh_kernel.cells_dict[cell_type])
 mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
+
 # Define boundary conditions and values.
 """free-end"""
 # def fixed_location(point):
@@ -197,15 +211,25 @@ mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
 #                           np.isclose(point[0], Lx, atol=0.1*Lx+1e-5))
 
 """bend"""
+# def fixed_location(point):
+#     return np.logical_or(np.logical_and(np.isclose(point[0], 0., atol=0.1*Lx+1e-5),
+#                           np.isclose(point[1], 0., atol=1+1e-5)),
+#                           np.logical_and(np.isclose(point[0], Lx, atol=0.1*Lx+1e-5),
+#                           np.isclose(point[1], 0., atol=1+1e-5)))
+
+# def load_location(point):
+#     return np.logical_and(np.isclose(point[0], Lx/2, atol=1+0.1*Lx+1e-5),
+#                           np.isclose(point[1], Ly, atol=Ly*0.1+1e-5))
+
 def fixed_location(point):
-    return np.logical_or(np.logical_and(np.isclose(point[0], 0., atol=0.1+1e-5),
-                          np.isclose(point[1], 0., atol=0.1*0+1e-5)),
-                          np.logical_and(np.isclose(point[0], Lx, atol=0.1+1e-5),
-                          np.isclose(point[1], 0., atol=0.1**+1e-5)))
+    return np.logical_or(np.logical_and(np.isclose(point[0], 0., atol=1+1e-5),
+                          np.isclose(point[1], 0., atol=1+1e-5)),
+                          np.logical_and(np.isclose(point[0], Lx, atol=1+1e-5),
+                          np.isclose(point[1], 0., atol=1+1e-5)))
 
 def load_location(point):
-    return np.logical_and(np.isclose(point[0], Lx/2, atol=0.1*Lx+1e-5),
-                          np.isclose(point[1], Ly, atol=0.1*Ly+1e-5))
+    return np.logical_and(np.isclose(point[0], Lx/2, atol=1+0.1*Lx+1e-5),
+                          np.isclose(point[1], Ly, atol=1+1e-5))
 
 # def load_location(point):
 #     return np.logical_and(np.isclose(point[2], Lz/2, atol=0.1*Lz+1e-5),
@@ -313,30 +337,130 @@ location_fns = [load_location]
 # tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++','TTz0','TTz180'],direction="isotropy",value=1,dual=True)
 
 
-tileHandler = TileHandler(typeList=['++weak', 'TTy0', 'TTy180','void'], 
-                          direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
-                          direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
-tileHandler.selfConnectable(typeName=['++weak','TTy0', 'TTy180','void'],value=1)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTy0','TTy180'],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy0',],direction="isotropy",value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTy0',],direction="y+",value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTy180',],direction="y-",value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy180',],direction=["y+","y-"],value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='TTy0',toTypeName=[ 'TTy0',],direction=["y+","y-"],value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTy0','TTy180'],direction="isotropy",value=1,dual=True)
-
-
-# tileHandler = TileHandler(typeList=['++', 'TTy0', 'TTy180','void'], 
+# tileHandler = TileHandler(typeList=['++weak', 'TTy0', 'TTy180','void'], 
 #                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
 #                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
-# tileHandler.selfConnectable(typeName=['++','TTy0', 'TTy180','void'],value=1)
+# tileHandler.selfConnectable(typeName=['++weak','TTy0', 'TTy180','void'],value=1)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTy0','TTy180'],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy0',],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTy0',],direction="y+",value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='++weak',toTypeName=[ 'TTy180',],direction="y-",value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy180',],direction=["y+","y-"],value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='TTy0',toTypeName=[ 'TTy0',],direction=["y+","y-"],value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++weak','TTy0','TTy180'],direction="isotropy",value=1,dual=True)
+
+
+# tileHandler = TileHandler(typeList=['++', 'TTy0', 'TTy180','void3'], 
+#                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
+#                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
+# tileHandler.selfConnectable(typeName=['++','TTy0', 'TTy180','void3'],value=1)
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTy0','TTy180'],direction="isotropy",value=1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy0',],direction="isotropy",value=1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTy0',],direction="y+",value=-1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTy180',],direction="y-",value=-1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='TTy180',toTypeName=[ 'TTy180',],direction=["y+","y-"],value=-1,dual=True)
 # tileHandler.setConnectiability(fromTypeName='TTy0',toTypeName=[ 'TTy0',],direction=["y+","y-"],value=-1,dual=True)
-# tileHandler.setConnectiability(fromTypeName='void',toTypeName=[ '++','TTy0','TTy180'],direction="isotropy",value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='void3',toTypeName=[ '++','TTy0','TTy180'],direction="isotropy",value=1,dual=True)
+
+
+tileHandler = TileHandler(typeList=['++', 'TTz0', 'TTz180','void3'], 
+                          direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
+                          direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
+tileHandler.selfConnectable(typeName=['++','TTz0', 'TTz180','void3'],value=1)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTz0','TTz180'],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTz180',toTypeName=[ 'TTz0',],direction="isotropy",value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTz0',],direction="y+",value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='++',toTypeName=[ 'TTz180',],direction="y-",value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTz180',toTypeName=[ 'TTz180',],direction=["y+","y-"],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='TTz0',toTypeName=[ 'TTz0',],direction=["y+","y-"],value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='void3',toTypeName=[ '++','TTz0','TTz180'],direction="isotropy",value=1,dual=True)
+
+
+# tileHandler = TileHandler(typeList=['++', 'TTy0', 'TTy180','TTx0','TTx180','void3'], 
+#                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
+#                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
+# socketPole={'x+':['++','TTx0','TTy180','TTy0','void3'],
+#         'x-':['++','TTy180','TTx180','TTy0','void3'],
+#         'y+':['++','TTx180','TTy0','TTx0','void3'],
+#         'y-':['++','TTy180','TTx180','TTx0','void3'],
+#         'z+':['++', 'TTy0', 'TTy180','TTx0','TTx180','void3'],
+#         'z-':['++', 'TTy0', 'TTy180','TTx0','TTx180','void3']}
+# socketVoid={'x+':['TTx180','void3'],
+#             'x-':['TTx0','void3'],
+#             'y+':['TTy180','void3'],
+#             'y-':['TTy0','void3']}
+
+# def dealer(th:TileHandler,yesSocketDict:dict,mode='both'):
+#     for n,direction in enumerate(yesSocketDict.keys()):
+#         plugtile=yesSocketDict[direction]
+#         socketDirection = th.get_opposite_direction_by_direction(direction)
+#         for i,fromtile in enumerate(plugtile):
+#             for j,totile in enumerate(th.typeList):
+#                 if (mode=='both' or mode=='1') and totile in yesSocketDict[socketDirection]:
+#                     th.setConnectiability(fromTypeName=fromtile,toTypeName=totile,direction=direction,value=1,dual=True)
+#                 if (mode=='both' or mode=='-1') and totile not in yesSocketDict[socketDirection]:
+#                     th.setConnectiability(fromTypeName=fromtile,toTypeName=totile,direction=direction,value=-1,dual=True)
+# dealer(tileHandler,socketPole,mode='both')
+# dealer(tileHandler,socketVoid,mode='1')
+
+
+# tileHandler = TileHandler(typeList=['++', 'TTy0', 'TTy180','void3'], 
+#                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
+#                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
+# socketPole={'x+':['++','TTy180','TTy0','void3'],
+#         'x-':['++','TTy180','TTy0','void3'],
+#         'y+':['++','TTy0','void3'],
+#         'y-':['++','TTy180','void3'],
+#         'z+':['++', 'TTy0', 'TTy180','void3'],
+#         'z-':['++', 'TTy0', 'TTy180','void3']}
+# socketVoid={'x+':['void3'],
+#             'x-':['void3'],
+#             'y+':['TTy180','void3'],
+#             'y-':['TTy0','void3']}
+
+# def dealer(th:TileHandler,yesSocketDict:dict,mode='both'):
+#     for n,direction in enumerate(yesSocketDict.keys()):
+#         plugtile=yesSocketDict[direction]
+#         socketDirection = th.get_opposite_direction_by_direction(direction)
+#         for i,fromtile in enumerate(plugtile):
+#             for j,totile in enumerate(th.typeList):
+#                 if (mode=='both' or mode=='1') and totile in yesSocketDict[socketDirection]:
+#                     th.setConnectiability(fromTypeName=fromtile,toTypeName=totile,direction=direction,value=1,dual=True)
+#                 if (mode=='both' or mode=='-1') and totile not in yesSocketDict[socketDirection]:
+#                     th.setConnectiability(fromTypeName=fromtile,toTypeName=totile,direction=direction,value=-1,dual=True)
+# dealer(tileHandler,socketPole,mode='both')
+# dealer(tileHandler,socketVoid,mode='1')
+
+
+
+# tileHandler = TileHandler(typeList=['++', 'TTz0', 'TTz180','void3'], 
+#                           direction=(('y+',"y-"),("x-","x+"),("z+","z-")),
+#                           direction_map={"z+":0,"x+":1,"z-":2,"x-":3,"y+":4,"y-":5})
+# socketPole={
+#         'x+':['++','TTz180','TTz0','void3'],
+#         'x-':['++','TTz180','TTz0','void3'],
+#         'z+':['++','TTz0','void3'],
+#         'z-':['++','TTz180','void3'],
+#         'y+':['++', 'TTz0', 'TTz180','void3'],
+#         'y-':['++', 'TTz0', 'TTz180','void3']}
+# socketVoid={'x+':['void3'],
+#             'x-':['void3'],
+#             'z+':['TTz180','void3'],
+#             'z-':['TTz0','void3']}
+
+# def dealer(th:TileHandler,yesSocketDict:dict,mode='both'):
+#     for n,direction in enumerate(yesSocketDict.keys()):
+#         plugtile=yesSocketDict[direction]
+#         socketDirection = th.get_opposite_direction_by_direction(direction)
+#         for i,fromtile in enumerate(plugtile):
+#             for j,totile in enumerate(th.typeList):
+#                 if (mode=='both' or mode=='1') and totile in yesSocketDict[socketDirection]:
+#                     th.setConnectiability(fromTypeName=fromtile,toTypeName=totile,direction=direction,value=1,dual=True)
+#                 if (mode=='both' or mode=='-1') and totile not in yesSocketDict[socketDirection]:
+#                     th.setConnectiability(fromTypeName=fromtile,toTypeName=totile,direction=direction,value=-1,dual=True)
+# dealer(tileHandler,socketPole,mode='both')
+# dealer(tileHandler,socketVoid,mode='1')
+
 
 
 # tileHandler = TileHandler(typeList=['++weak', 'pillarx', 'pillary','pillarz','void'], 
@@ -385,22 +509,23 @@ tileHandler.constantlize_compatibility()
 tileHandler._compatibility = preprocess_compatibility(tileHandler.compatibility)
 print(tileHandler)
 
-from src.fem.SigmaInterpreter_constitutive import SigmaInterpreter
+from src.fem.SigmaInterpreter_constitutive_tensor33 import SigmaInterpreter
 # p=[4,3,3]
-p=[4,3,3,3]
 # p=[3,3,3,3]
+p=[3,3,3,3]
+# p=[3,3,3,3,3,3]
 
 # p=[4,3,3,3,3]
 
 assert len(p)==len(tileHandler.typeList),f"p length {len(p)} must equal to tile types num {len(tileHandler.typeList)}"
 
 
-sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", p=p, debug=False) #3,4 445 544 
+sigmaInterpreter=SigmaInterpreter( p=p) #3,4 445 544 
 # sigmaInterpreter=SigmaInterpreter(typeList=tileHandler.typeList,folderPath="data/EVG", debug=False) #3,4
 
 print(sigmaInterpreter)
 # Define forward problem.
-problem = Elasticity(mesh, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
+problem = Elasticity(mesh_kernel, vec=3, dim=3, ele_type=ele_type, dirichlet_bc_info=dirichlet_bc_info, location_fns=location_fns,
                      additional_info=(sigmaInterpreter,))
 
 # Apply the automatic differentiation wrapper.
@@ -430,7 +555,7 @@ def output_sol(params, obj_val,sol_list):
     sol = sol_list[0]
     vtu_path = os.path.join(data_path, f'vtk/sol_{output_sol.counter:03d}.vtu')
     cell_infos = [(f'theta{i}', params[:, i]) for i in range(params.shape[-1])]
-    mask = np.max(params, axis=-1) > 0.4
+    mask = np.max(params, axis=-1) > 0.5
     all = np.where(mask, np.argmax(params,axis=-1), np.nan)
     cell_infos.append( ('all', all) )
     mises = problem.compute_von_mises(sol)
@@ -499,12 +624,12 @@ def lower_bound_constraint(rho, index, vr):
 alpha1=1.
 
 # vt=0.5
-vu0=0.3
-# vu1=0.3
-# vu2=0.3
+vu0=0.4
+# vu1=0.15
+# vu2=0.15
 # v0=0.15
-v1=0.3
-v2=0.3
+# v1=0.1
+# v2=0.1
 # v3=0.1
 
 
@@ -518,8 +643,8 @@ constraint_items = [
     # (f"2_upper_bound:{vu2}", lambda rho: upper_bound_constraint(rho, 2, vu2)),
 
     # (f"0_lower_bound:{v0}", lambda rho: lower_bound_constraint(rho, 0, v0)),
-    (f"1_lower_bound:{v1}", lambda rho: lower_bound_constraint(rho, 1, v1)),
-    (f"2_lower_bound:{v2}", lambda rho: lower_bound_constraint(rho, 2, v2)),
+    # (f"1_lower_bound:{v1}", lambda rho: lower_bound_constraint(rho, 1, v1)),
+    # (f"2_lower_bound:{v2}", lambda rho: lower_bound_constraint(rho, 2, v2)),
     # (f"3_lower_bound:{v3}", lambda rho: lower_bound_constraint(rho, 3, v3)),
 
 ]
@@ -564,14 +689,20 @@ optimizationParams = {'maxIters':101, 'movelimit':0.1, 'NxNyNz':(Nx,Ny,Nz),'sens
 
 key = jax.random.PRNGKey(0)
 rho_ini = np.ones((Nx,Ny,Nz,tileHandler.typeNum),dtype=np.float64).reshape(-1,tileHandler.typeNum)/tileHandler.typeNum
-# rho_ini = rho_ini.at[:,1].set(0.2)
-# rho_ini = rho_ini.at[:,2].set(0.2)
+rho_ini = rho_ini.at[:,0].set(0.5)
+rho_ini = rho_ini.at[:,1].set(0.5)
+rho_ini = rho_ini.at[:,2].set(0.5)
 
 
 # rho_ini = rho_ini + jax.random.uniform(key,shape=rho_ini.shape)*0.1
 
 # import jax_fem.mma_ori as mo
-rho_oped,infos=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc)
+from jax_fem.mma33 import optimize
+from src.fem.TileKernelInterpreter import TileKernelInterpreter3D
+tileKernelInterpreter=TileKernelInterpreter3D(typeList=tileHandler.typeList,folderPath="data/Kernels",kernel_size=kernel_size)
+del meshio_mesh
+del mesh
+rho_oped,infos=optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum=tileHandler.typeNum,WFC=wfc,tileKernelInterpreter=tileKernelInterpreter)
 # rho_oped,J_list = mo.optimize(problem.fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,)
 
 np.save("data/npy/rho_oped",rho_oped)
@@ -601,11 +732,7 @@ plt.savefig("data/topo_obj.tiff")
 
 
 
-# rho_oped = np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180完全约束有filter/npy/rho_oped.npy")
-rho_oped = np.load("data/npy/rho_oped.npy")
-import src.WFC.classicalWFC as normalWFC
-wfc_classical_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(rho_oped,adj,tileHandler))
-np.save("data/npy/wfc_classical_end.npy",wfc_classical_end)
+
 
 types_str = ""
 for t in tileHandler.typeList:
@@ -626,7 +753,7 @@ lines = [
          f'hpdmo',
         #  f'Simp',t
          f"WFCsigma",
-         
+         f"ks{kernel_size}",
         #  f"NoSM",
         #  f'smoothHeaviside',
         #  f"Weight",
@@ -634,6 +761,7 @@ lines = [
         #  f"Ms",
         f"3B",
         f'xyz',
+        f'33'
          ]
 with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
     try:
@@ -647,3 +775,9 @@ with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
             f.write(f"{con_line}\n")
     except Exception as e:
         print(f"Error writing constraints to file: {e}")
+
+# rho_oped = np.load("/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/vtk++TT0TT180完全约束有filter/npy/rho_oped.npy")
+rho_oped = np.load("data/npy/rho_oped.npy").reshape(-1,tileHandler.typeNum)
+import src.WFC.classicalWFC as normalWFC
+wfc_classical_end ,max_entropy, collapse_list= jax.lax.stop_gradient(normalWFC.waveFunctionCollapse(np.array(rho_oped),adj,tileHandler))
+np.save("data/npy/wfc_classical_end.npy",wfc_classical_end)

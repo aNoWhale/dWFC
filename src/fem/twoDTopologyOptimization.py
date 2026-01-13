@@ -259,35 +259,89 @@ location_fns = [load_location]
 
 
 
-tileHandler = TileHandler(typeList=['a','c','e','void'],direction=(('y+',"y-"),("x-","x+"),))
-tileHandler.selfConnectable(typeName="e",direction='isotropy',value=1)
+# tileHandler = TileHandler(typeList=['a','c','e','void'],direction=(('y+',"y-"),("x-","x+"),))
+# tileHandler.selfConnectable(typeName="e",direction='isotropy',value=1)
 
-tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c',],direction='y-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','a'],direction='x-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','a'],direction='x+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c',],direction='y-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','a'],direction='x-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['e','c','a'],direction='x+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName='c',direction='y+',value=1,dual=True)
+
+
+
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a','e'],direction='y+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a'],direction='y-',value=-1,dual=True)
+
+
+
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a'],direction='y+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','c'],direction='x-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','c'],direction='x+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',direction='y-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c'],direction='y+',value=-1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c','e'],direction='y-',value=-1,dual=True)
+
+
+# tileHandler.setConnectiability(fromTypeName='e',toTypeName='a',direction='y+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='e',toTypeName='c',direction='y-',value=1,dual=True)
+
+
+# tileHandler.selfConnectable(typeName="void",direction='isotropy',value=1)
+# tileHandler.setConnectiability(fromTypeName='void',toTypeName=['a','c','e'],direction=['x+','x-','y+','y-'],value=1,dual=True)
+
+
+
+tileHandler = TileHandler(typeList=['a','c','b','d','void'],direction=(('y+',"y-"),("x-","x+"),))
+# tileHandler.selfConnectable(typeName="e",direction='isotropy',value=1)
+
+tileHandler.setConnectiability(fromTypeName='a',toTypeName=['b','c','d'],direction='y-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='a',toTypeName=['c','a','d'],direction='x-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='a',toTypeName=['b','c','a'],direction='x+',value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='a',toTypeName='c',direction='y+',value=1,dual=True)
 
 
 
-tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a','e'],direction='y+',value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a','b','d'],direction='y+',value=-1,dual=True)
 tileHandler.setConnectiability(fromTypeName='a',toTypeName=['a'],direction='y-',value=-1,dual=True)
 
 
 
-tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a'],direction='y+',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','c'],direction='x-',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='c',toTypeName=['e','a','c'],direction='x+',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='c',toTypeName=['b','a','d'],direction='y+',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='c',toTypeName=['d','a','c'],direction='x-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='c',toTypeName=['b','a','c'],direction='x+',value=1,dual=True)
 tileHandler.setConnectiability(fromTypeName='c',toTypeName='a',direction='y-',value=1,dual=True)
+
 tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c'],direction='y+',value=-1,dual=True)
-tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c','e'],direction='y-',value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='c',toTypeName=['c','b','d'],direction='y-',value=-1,dual=True)
+
+tileHandler.setConnectiability(fromTypeName='b',toTypeName=['d'],direction='x+',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='b',toTypeName=['d','a','c'],direction='x-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='b',toTypeName=['d','b','c'],direction='y-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='b',toTypeName=['d','b','a'],direction='y+',value=1,dual=True)
+
+tileHandler.setConnectiability(fromTypeName='b',toTypeName=['b','c','a'],direction='x+',value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='b',toTypeName=['b'],direction='x-',value=-1,dual=True)
+
+tileHandler.setConnectiability(fromTypeName='d',toTypeName=['b'],direction='x-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='d',toTypeName=['b','a','c'],direction='x+',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='d',toTypeName=['d','b','c'],direction='y-',value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='d',toTypeName=['d','b','a'],direction='y+',value=1,dual=True)
+
+tileHandler.setConnectiability(fromTypeName='d',toTypeName=['b','c','a'],direction='x-',value=-1,dual=True)
+tileHandler.setConnectiability(fromTypeName='d',toTypeName=['d'],direction='x+',value=-1,dual=True)
 
 
-tileHandler.setConnectiability(fromTypeName='e',toTypeName='a',direction='y+',value=1,dual=True)
-tileHandler.setConnectiability(fromTypeName='e',toTypeName='c',direction='y-',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='e',toTypeName='a',direction='y+',value=1,dual=True)
+# tileHandler.setConnectiability(fromTypeName='e',toTypeName='c',direction='y-',value=1,dual=True)
 
 
 tileHandler.selfConnectable(typeName="void",direction='isotropy',value=1)
-tileHandler.setConnectiability(fromTypeName='void',toTypeName=['a','c','e'],direction=['x+','x-','y+','y-'],value=1,dual=True)
+tileHandler.setConnectiability(fromTypeName='void',toTypeName=['a','c','b','d'],direction=['x+','x-','y+','y-'],value=1,dual=True)
+
+
+
+
+
 
 
 
@@ -301,7 +355,7 @@ print(tileHandler)
 from src.fem.SigmaInterpreter_constitutive_2D import SigmaInterpreter
 # p=[4,3,3]
 # p=[3,3,3,3,4,3]
-p=[3,3,3,3]
+p=[4,4,4,4,4]
 
 assert len(p)==len(tileHandler.typeList),f"p length {len(p)} must equal to tile types num {len(tileHandler.typeList)}"
 sigmaInterpreter=SigmaInterpreter(p=p,) #3,4 445 544 
@@ -405,15 +459,15 @@ def lower_bound_constraint(rho, index, vr):
 
 # ========== 3. 定义所有约束项（自动遍历的核心） ==========
 vt=0.6
-vue=0.35
-vua=0.2
+# vue=0.35
+# vua=0.2
 # vub=0.15
-vuc=0.2
+# vuc=0.2
 # vud=0.15
 
-va=0.15
+# va=0.15
 # vb=0.1
-vc=0.15
+# vc=0.15
 # vd=0.1
 
 
@@ -423,15 +477,15 @@ constraint_items = [
     ("total_non_void_volume_without_void", lambda rho: np.mean(np.sum(rho, axis=-1)-rho[:,-1]) / vt - 1.0),
     # 约束2：材料选择损失（原有逻辑，保留）
     ("material_selection_loss", lambda rho: material_selection_loss(rho)),
-    (f"target_material_upper_bound:{vue}", lambda rho: upper_bound_constraint(rho, 2, vue)),
-    (f"1_upper_bound:{vua}", lambda rho: upper_bound_constraint(rho, 0, vua)),
+    # (f"target_material_upper_bound:{vue}", lambda rho: upper_bound_constraint(rho, 2, vue)),
+    # (f"1_upper_bound:{vua}", lambda rho: upper_bound_constraint(rho, 0, vua)),
     # (f"2_upper_bound:{vub}", lambda rho: upper_bound_constraint(rho, 1, vub)),
-    (f"3_upper_bound:{vuc}", lambda rho: upper_bound_constraint(rho, 1, vuc)),
+    # (f"3_upper_bound:{vuc}", lambda rho: upper_bound_constraint(rho, 1, vuc)),
     # (f"4_upper_bound:{vud}", lambda rho: upper_bound_constraint(rho, 3, vud)),
 
-    (f"1_lower_bound:{va}", lambda rho: lower_bound_constraint(rho, 0, va)),
+    # (f"1_lower_bound:{va}", lambda rho: lower_bound_constraint(rho, 0, va)),
     # (f"2_lower_bound:{vb}", lambda rho: lower_bound_constraint(rho, 1, vb)),
-    (f"3_lower_bound:{vc}", lambda rho: lower_bound_constraint(rho, 1, vc)),
+    # (f"3_lower_bound:{vc}", lambda rho: lower_bound_constraint(rho, 1, vc)),
     # (f"4_lower_bound:{vd}", lambda rho: lower_bound_constraint(rho, 3, vd)),
 
 ]
@@ -547,6 +601,7 @@ lines = [
          f"WFCsigma",
          f"2D",
          ]
+
 with open("data/vtk/parameters.txt", "w", encoding="utf-8") as f:
     try:
         for line in lines:

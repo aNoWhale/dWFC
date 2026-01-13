@@ -4,6 +4,9 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 
+os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
+os.environ["JAX_PLATFORMS"] = "cuda"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 from src.WFC.TileHandler_JAX import TileHandler
 from src.dynamicGenerator.meshTools import generate_mesh_from_stp
 from jax_fem.generate_mesh import Mesh
@@ -240,25 +243,30 @@ if __name__ == "__main__":
     else:
         meshio_mesh = meshio.read(f"data/msh/{mshname}")
     mesh = Mesh(meshio_mesh.points, meshio_mesh.cells_dict[cell_type])
-    prefix="2D/"
-    pathname= 'vtkfacevoidnofilter1.2p3333SimpWFCsigma2D后处理过了'
+    prefix=""
+    pathname= 'vtkfacevoidnofilter1.2p3333SimpWFCsigma2D就这个了'
     print(f"{pathname}")
-    # rho_oped = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/npy/100.npy").reshape(-1, tileHandler.typeNum+1)
-    # rho_oped = rho_oped[...,:3].reshape(-1,tileHandler.typeNum)
-    # wfcEnd = np.load(f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/npy/wfc_classical_end.npy").reshape(-1, tileHandler.typeNum)
-    from jax_fem.utils import extract_theta_from_vtu
-    vtkinfo = extract_theta_from_vtu(f'/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/sol_136.vtu')
-    rho_oped=[]
-    for i in range(tileHandler.typeNum):
-        rho_oped.append(vtkinfo[f'theta{i}'][...,None])
+    rho_oped = np.load(f"data/{prefix+pathname}/npy/96_f.npy").reshape(-1, tileHandler.typeNum+1)
+    rho_oped = rho_oped[...,:].reshape(-1,tileHandler.typeNum)
+    print(f"rho_oped.shape:{rho_oped.shape}")
+    # wfcEnd = np.load(f"data/{prefix+pathname}/npy/wfc_classical_end.npy").reshape(-1, tileHandler.typeNum)
+    wfcEnd = np.load(f"data/{prefix+pathname}/npy/rho_oped.npy").reshape(-1, tileHandler.typeNum)
+
+    print(f"wfc_end.shape:{wfcEnd.shape}")
+
+    # from jax_fem.utils import extract_theta_from_vtu
+    # vtkinfo = extract_theta_from_vtu(f'data/{prefix+pathname}/sol_096.vtu')
+    # rho_oped=[]
+    # for i in range(tileHandler.typeNum):
+    #     rho_oped.append(vtkinfo[f'theta{i}'][...,None])
 
     rho_oped = np.concatenate(rho_oped,axis=-1)
     rho_oped = rho_oped.reshape(-1,tileHandler.typeNum)
     from src.WFC.adjacencyCSR import build_hex8_adjacency_with_meshio
     adj_csr = build_hex8_adjacency_with_meshio(mesh=meshio_mesh)
 
-    from src.WFC.mixWFC import waveFunctionCollapse as classicalWFC
-    wfcEnd,_,_=classicalWFC(init_probs=rho_oped,adj_csr=adj_csr,tileHandler=tileHandler)
+    # from src.WFC.mixWFC import waveFunctionCollapse as classicalWFC
+    # wfcEnd,_,_=classicalWFC(init_probs=rho_oped,adj_csr=adj_csr,tileHandler=tileHandler)
 
     print(f"wfc mean:{wfcEnd.mean()}")
     mask=np.max(rho_oped,axis=-1,keepdims=False)>0.5
@@ -267,7 +275,8 @@ if __name__ == "__main__":
         mesh=mesh,
         rho=wfcEnd,
         tileHandle=tileHandler,
-        output_filename=f"/mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/{prefix+pathname}/{pathname}.stl",
+        # /mnt/c/Users/Administrator/Desktop/metaDesign/一些好结果/
+        output_filename=f"data/{prefix+pathname}/{pathname}.stl",
         mask=mask,
         deflection=1.0  # 可调整：0.1（高精度慢）→ 1.0（低精度快）
     )

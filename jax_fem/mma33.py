@@ -427,8 +427,8 @@ def subsolv(m,n,epsimin,low,upp,alfa,beta,p0,q0,P,Q,a0,a,b,c,d):
 
     return xmma,ymma,zmma,lamma,xsimma,etamma,mumma,zetmma,smma
 
-from src.fem.TileKernelInterpreter import TileKernelInterpreter
-def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum, WFC:Callable, tileKernelInterpreter:TileKernelInterpreter):
+from src.fem.TileKernelInterpreter import TileKernelInterpreter3D
+def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numConstraints,tileNum, WFC:Callable, tileKernelInterpreter:TileKernelInterpreter3D):
     """
     Performs topology optimization using the Method of Moving Asymptotes (MMA).
 
@@ -479,7 +479,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
     tol_con = optimizationParams.get('tol_con', 1e-1)
     min_iters = optimizationParams.get('min_iters', 10)
     sensitivity_filtering = optimizationParams.get('sensitivity_filtering',"common")
-    Nx,Ny = optimizationParams.get('NxNy',(60,30))
+    Nx,Ny,Nz = optimizationParams.get('NxNyNz',(40,20,5))
 
 
     # jplotter = Jplotter()
@@ -521,7 +521,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         info={}
         # alpha = 0.2 + 0.6 / (1 + np.exp(-10 * (loop / optimizationParams['maxIters'] - 0.5))) #0.2-0.8, 10越大越陡峭
         alpha = 1
-        beta=1.0 #0.8
+        beta=1. #0.8
         
         print(f"MMA solver...")
         print(f"collapsing...")
@@ -533,11 +533,11 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
         def filter_chain(rho,WFC,ft,loop):
             # rho = applyDensityFilter(ft, rho)
             rho,_,_=WFC(rho.reshape(-1,tileNum),subkey)
-            rho_c = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
+            # rho_c = rho.reshape(-1,tileNum) #不一定需要reshaped到(...,1)
             # rho = heaviside(rho,2^(loop//10))
             # rho = smooth_heaviside(rho, beta=2**((loop-0.5)//5))
             rho = rho.reshape(-1,tileNum)
-            rho = beta * rho_c + (1 - beta) * rho
+            # rho = beta * rho_c + (1 - beta) * rho
             rho = rho/jnp.maximum(jnp.linalg.norm(rho,axis=-1,keepdims=True,ord=1), 1e-8)
 
             # rho = jax.nn.softmax(rho,axis=-1)
@@ -551,7 +551,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             return filter_chain(r, WFC, ft,loop)
         
         def upsample_vjp(r):
-            r = tileKernelInterpreter(r.reshape(Nx,Ny,tileNum), Nx, Ny)
+            r = tileKernelInterpreter(r.reshape(Nx,Ny,Nz,tileNum), Nx, Ny, Nz)
             r = r.reshape(-1,tileNum)
             r = jnp.clip(r,1e-10,1)
             return r
@@ -579,6 +579,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         J, dJ_drho_u = objectiveHandle(rho_u)  # dJ_drho_f：目标函数对rho_u的梯度
         vc, dvc_drho_f = consHandle(rho_f)     # dvc_drho_f：约束对rho_f的梯度
+
         print(f"dJ_drho_u.shape: {dJ_drho_u.shape}\ndvc_drho_f.shape: {dvc_drho_f.shape}")
         print(f"dJ_drho_u.max: {jnp.max(dJ_drho_u)}")
         print(f"dJ_drho_u.min: {jnp.min(dJ_drho_u)}")
@@ -670,7 +671,7 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
 
         print(f"MMA took {time_elapsed} [s]")
 
-        print(f'Iter {loop:d} end; J {J:.5f}; \nconstraint: \n{vc}')
+        print(f'Iter {loop:d} end; J {J:.5f}<-{J_prev:.5f} \nconstraint: \n{vc}')
         print(f"epoch {loop} spends: {time.time()-start_time} [s]")
         print("****************************************************\n")
         J_prev = J
