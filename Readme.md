@@ -1,4 +1,4 @@
-# instruction
+# Instruction
 ## 1.here, we have three possible entrance:
 * src/fem/topologyOptimization.py using 3D 1x1x1 RVE model
 * src/fem/topologyOptimization33.py using 3D 3x3x3 RVE model
@@ -15,7 +15,8 @@
 ### while this process is not integated into the main procedure, you can run it manully.
 ### parameters should be defined correctly.
 
-## 6. CPU is used explicitly. GPU is supported in theopy, if you have enough GPU memory, maybe you can give it a try.
+## 6. CPU is used explicitly.
+### GPU is supported in theropy, if you have enough GPU memory, maybe you can give it a try.
 
 ## 7. conda, conda-forge, and pip are employed:
 * to create conda environment with requirements
@@ -51,3 +52,8 @@ pip install -U "jax[cuda12]"
 ```shell
 julia Pkg.instantiate(julia_env)
 ``` -->
+## 8. Use AI tool for understanding.
+#### For me, English Code Comments are not intuition. So some comments are in Chinese. And some codes are vibe coding, but human supervised. 
+#### Using AI tool to help you understand the algorithm will be a good idea.
+#### When I started this project, I was not good at JAX coding, and when I can code well, the project is to heavy to recode.
+#### Maybe implementing your own dWFC instead of using my code will be a good choice.
