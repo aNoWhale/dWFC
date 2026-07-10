@@ -557,8 +557,10 @@ def optimize(fe, rho_ini, optimizationParams, objectiveHandle, consHandle, numCo
             return r
 
         # 构建VJP：fwd_func返回(rho_f, vjp_fn)，其中vjp_fn用于计算梯度
+        print("wfc start")
+        wfc_start_at = time.time()
         rho_f_vjp, vjp_fn_f = jax.vjp(filter_chain_vjp, rho)
-
+        print(f"wfc spend: {time.time()-wfc_start_at}")
         rho_u_vjp, vjp_fn_u = jax.vjp(upsample_vjp, rho_f_vjp)
 
         rho_f = rho_f_vjp

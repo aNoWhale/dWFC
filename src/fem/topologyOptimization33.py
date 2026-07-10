@@ -178,8 +178,8 @@ cell_type = get_meshio_cell_type(ele_type)
 # Lx, Ly, Lz = 40., 20., 5. 
 # Nx, Ny, Nz = 40, 20, 5
 kernel_size = 3
-Lx, Ly, Lz = 20., 10., 5. 
-Nx, Ny, Nz = 20, 10, 5
+Lx, Ly, Lz = 20., 10., 50. 
+Nx, Ny, Nz = 20, 10, 50
 create_directory_if_not_exists("data/msh")
 mshname_kernel=f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}_kernel{kernel_size}.msh"
 mshname=f"L{Lx}{Ly}{Lz}N{Nx}{Ny}{Nz}.msh"
